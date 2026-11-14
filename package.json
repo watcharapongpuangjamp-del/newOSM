@@ -25,6 +25,7 @@
     "jeep-sqlite": "^2.8.0",
     "jsqr": "^1.4.0",
     "leaflet": "^1.9.4",
+    "leaflet.heat": "^1.0.1",
     "lucide-react": "^1.16.0",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
