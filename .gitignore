@@ -1,0 +1,42 @@
+# Node & Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build Outputs
+dist/
+dist-ssr/
+build/
+*.local
+out/
+
+# Android & Keystores (SECURITY)
+*.apk
+*.aab
+*.jks
+*.keystore
+secrets.properties
+debug.keystore
+
+# Logs & Environment
+*.log
+.env
+.env*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Capacitor / Mobile generated artifacts
+android/app/build/
+android/.gradle/
