@@ -14,6 +14,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { Household, Person, Village, VhvMember } from '../types';
+import { MapLegend, type MarkerCounts } from './MapLegend';
 
 interface CommunityMapProps {
   households: Household[];
@@ -206,6 +207,23 @@ export const CommunityMap: React.FC<CommunityMapProps> = ({
     }
     return points;
   }, [scopedHouses, membersByHouseId, heatMetric]);
+
+  const markerCounts = useMemo<MarkerCounts>(() => {
+    const counts: MarkerCounts = { normal: 0, homebound: 0, critical: 0 };
+    for (const house of displayHouses) {
+      const members = membersByHouseId.get(house.id) || [];
+      const hasBedridden = members.some((p) => p.careCategory === 'bedridden');
+      const hasHomebound = members.some((p) => p.careCategory === 'homebound');
+      if (hasBedridden || house.mosquitoLarvaFound) {
+        counts.critical++;
+      } else if (hasHomebound) {
+        counts.homebound++;
+      } else {
+        counts.normal++;
+      }
+    }
+    return counts;
+  }, [displayHouses, membersByHouseId]);
 
   const villageHeatSummaries = useMemo(() => {
     return villages.map((v) => {
@@ -778,45 +796,15 @@ export const CommunityMap: React.FC<CommunityMapProps> = ({
         )}
 
         {/* Map Legend Overlay */}
-        <div className="absolute bottom-4 left-4 z-[400] bg-white/95 backdrop-blur-xs p-3 rounded-xl shadow-md border border-slate-200 text-xs space-y-2 max-w-[250px]">
-          <div className="space-y-1.5">
-            <span className="font-bold text-slate-800 block text-[11px] uppercase tracking-wider">
-              สัญลักษณ์พิกัด ({useGoogleMaps ? 'Google Maps' : 'OpenStreetMap'})
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block shrink-0"></span>
-              <span className="text-slate-700">ปกติ / ติดสังคม</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-amber-500 inline-block shrink-0"></span>
-              <span className="text-slate-700">ติดบ้าน / มีโรคเรื้อรัง</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-rose-500 inline-block shrink-0"></span>
-              <span className="text-slate-700">ติดเตียง / พบลูกน้ำ</span>
-            </div>
-          </div>
-
-          {!useGoogleMaps && showHeatMap && (
-            <div className="pt-2 border-t border-slate-200/80 space-y-1">
-              <span className="font-bold text-slate-800 block text-[11px]">
-                ความหนาแน่น ({HEAT_METRIC_CONFIG[heatMetric].shortLabel})
-              </span>
-              <div
-                className="h-2.5 w-full rounded-full"
-                style={{
-                  background:
-                    'linear-gradient(to right, #22c55e, #eab308, #f97316, #dc2626)',
-                }}
-              />
-              <div className="flex justify-between text-[10px] text-slate-500 font-medium">
-                <span>น้อย</span>
-                <span>ปานกลาง</span>
-                <span>หนาแน่นสูง</span>
-              </div>
-            </div>
-          )}
-        </div>
+        <MapLegend
+          mapProviderLabel={useGoogleMaps ? 'Google Maps' : 'OpenStreetMap'}
+          showMarkers={useGoogleMaps ? true : showMarkers}
+          markerCounts={markerCounts}
+          showHeatMap={!useGoogleMaps && showHeatMap}
+          heatMetricLabel={HEAT_METRIC_CONFIG[heatMetric].label}
+          heatMetricDescription={HEAT_METRIC_CONFIG[heatMetric].description}
+          heatPointCount={heatPoints.length}
+        />
 
         {/* Clicked Coords Action Box */}
         {clickedCoords && (
