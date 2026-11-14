@@ -8,6 +8,7 @@ interface PersonModalProps {
   isOpen: boolean;
   personToEdit?: Person | null;
   defaultHouseholdId?: string;
+  initialCitizenId?: string;
   households: Household[];
   villages: Village[];
   onClose: () => void;
@@ -31,6 +32,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
   isOpen,
   personToEdit,
   defaultHouseholdId,
+  initialCitizenId,
   households,
   villages,
   onClose,
@@ -90,7 +92,8 @@ export const PersonModal: React.FC<PersonModalProps> = ({
       setBloodSugarDtx(personToEdit.bloodSugarDtx);
       setIdValidation(validateThaiCitizenId(personToEdit.citizenId));
     } else {
-      setCitizenId('');
+      const cleanInitialCid = (initialCitizenId || '').replace(/\D/g, '').slice(0, 13);
+      setCitizenId(cleanInitialCid);
       setTitle('นาย');
       setFirstName('');
       setLastName('');
@@ -113,9 +116,11 @@ export const PersonModal: React.FC<PersonModalProps> = ({
       setSystolic(undefined);
       setDiastolic(undefined);
       setBloodSugarDtx(undefined);
-      setIdValidation({ isValid: true });
+      setIdValidation(
+        cleanInitialCid.length === 13 ? validateThaiCitizenId(cleanInitialCid) : { isValid: true }
+      );
     }
-  }, [personToEdit, defaultHouseholdId, households, isOpen]);
+  }, [personToEdit, defaultHouseholdId, initialCitizenId, households, isOpen]);
 
   if (!isOpen) return null;
 

@@ -1,21 +1,32 @@
 import React, { useState } from 'react';
 import {
   BookOpen,
-  Heart,
-  Activity,
-  Bug,
-  AlertCircle,
-  HelpCircle,
   Sparkles,
   PhoneCall,
   ChevronDown,
   ChevronUp,
+  AlertTriangle,
+  Send,
+  Loader2,
 } from 'lucide-react';
+import { streamHealthAssistantAI } from '../services/firebase';
 
-export const HealthKnowledge: React.FC = () => {
+interface HealthKnowledgeProps {
+  communitySummary?: string;
+}
+
+const QUICK_PROMPTS = [
+  'ความดันโลหิต 155/95 mmHg ควรแนะนำและส่งต่ออย่างไร?',
+  'เกณฑ์ค่าน้ำตาลปลายนิ้ว (DTX) สำหรับคัดกรองเบาหวานเป็นอย่างไร?',
+  'วิธีใส่ทรายอะเบทและมาตรการ 3 เก็บ ป้องกันไข้เลือดออก',
+  'การพลิกตัวและป้องกันแผลกดทับในผู้ป่วยติดเตียง',
+];
+
+export const HealthKnowledge: React.FC<HealthKnowledgeProps> = ({ communitySummary }) => {
   const [openSection, setOpenSection] = useState<number | null>(0);
   const [aiQuestion, setAiQuestion] = useState('');
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
 
   const GUIDELINES = [
@@ -57,38 +68,39 @@ export const HealthKnowledge: React.FC = () => {
     },
   ];
 
-  const handleAskAI = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!aiQuestion.trim()) return;
+  const runAiQuery = async (questionText: string) => {
+    const trimmed = questionText.trim();
+    if (!trimmed || isAiLoading) return;
 
     setIsAiLoading(true);
-    setAiAnswer(null);
+    setAiAnswer('');
+    setAiError(null);
 
-    // AI smart synthesis based on Thai Ministry of Public Health knowledge base
-    setTimeout(() => {
-      const q = aiQuestion.toLowerCase();
-      let response = '';
-
-      if (q.includes('ความดัน') || q.includes('bp')) {
-        response =
-          'สำหรับความดันโลหิต: หากวัดได้เกิน 140/90 mmHg ให้นั่งพักสงบ 15 นาทีโดยไม่ดื่มชากาแฟแล้ววัดซ้ำ หากยังคงสูงต่อเนื่อง แนะนำให้ส่งต่อแพทย์ รพ.สต. เพื่อตรวจวินิจฉัยและรับยาลดความดัน ควบคู่กับการลดอาหารรสเค็ม (โซเดียมไม่เกิน 2,000 มก./วัน)';
-      } else if (q.includes('เบาหวาน') || q.includes('dtx') || q.includes('น้ำตาล')) {
-        response =
-          'เกณฑ์ค่าน้ำตาลในเลือด (DTX อดอาหาร 8 ชม.): ค่าปกติคือ 70-99 mg/dL หากได้ 100-125 mg/dL คือกลุ่มเสี่ยงเบาหวาน และหาก ≥ 126 mg/dL ถือว่าเข้าเกณฑ์สงสัยโรคเบาหวาน ควรแนะนำงดหวาน ควบคุมแป้ง และนัดเจาะเลือดซ้ำที่ รพ.สต.';
-      } else if (q.includes('ยุง') || q.includes('ไข้เลือดออก')) {
-        response =
-          'คำแนะนำกำจัดลูกน้ำยุงลาย: สำรวจภาชนะขังน้ำทุก 7 วัน ใส่ทรายทีมีฟอส (ทรายอะเบท) ในอัตรา 1 กรัมต่อน้ำ 10 ลิตร หากพบคนในหมู่บ้านมีไข้สูงเฉียบพลันเกิน 2 วัน ปวดศีรษะ ปวดกระบอกตา ให้รีบไปพบแพทย์และห้ามรับประทานยาแอสไพรินหรือไอบูโพรเฟนเด็ดขาด';
-      } else if (q.includes('ติดเตียง') || q.includes('แผล')) {
-        response =
-          'การดูแลแผลกดทับ: หัวใจสำคัญคือการพลิกตัวทุก 2 ชั่วโมง ห้ามให้แผลสัมผัสความเปียกชื้น หากมีแผลระดับ 2 (มีตุ่มน้ำแตก) ให้ใช้น้ำเกลือปราศจากเชื้อ (Normal Saline 0.9%) ล้างแผล และประสานพยาบาล รพ.สต. เพื่อตรวจประเมินทำแผลฆ่าเชื้อ';
-      } else {
-        response =
-          `คำแนะนำสำหรับข้อซักถาม "${aiQuestion}": ตามแนวทางสาธารณสุขมูลฐานของ อสม. แนะนำให้ติดตามประเมินอาการเบื้องต้น บันทึกข้อมูลลงในระบบ Smart OSM และหากผู้ป่วยมีอาการผิดปกติที่ส่งผลต่อสัญญาณชีพ ควรรีบประสานเจ้าหน้าที่ รพ.สต. หรือโทรสายด่วนการแพทย์ฉุกเฉิน 1669 ทันที`;
-      }
-
-      setAiAnswer(response);
+    try {
+      const fullText = await streamHealthAssistantAI(
+        trimmed,
+        communitySummary,
+        (partial) => {
+          setAiAnswer(partial);
+        }
+      );
+      setAiAnswer(fullText);
+    } catch (err: any) {
+      console.error('Firebase AI Logic request failed:', err);
+      const message =
+        err?.name === 'AbortError'
+          ? 'คำขอใช้เวลานานเกินไป (เกิน 45 วินาที) กรุณาลองใหม่อีกครั้ง'
+          : err?.message || 'ไม่สามารถเชื่อมต่อ Firebase AI Logic ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต';
+      setAiError(message);
+      setAiAnswer((prev) => (prev && prev.trim().length > 0 ? prev : null));
+    } finally {
       setIsAiLoading(false);
-    }, 600);
+    }
+  };
+
+  const handleAskAI = (e: React.FormEvent) => {
+    e.preventDefault();
+    void runAiQuery(aiQuestion);
   };
 
   return (
@@ -100,7 +112,7 @@ export const HealthKnowledge: React.FC = () => {
           <span>คลังความรู้สุขภาพชุมชน & AI ผู้ช่วย อสม.</span>
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-          แนวทางการปฏิบัติงานตามมาตรฐานกระทรวงสาธารณสุข และระบบตอบคำถามสุขภาพเบื้องต้น
+          แนวทางการปฏิบัติงานตามมาตรฐานกระทรวงสาธารณสุข และระบบตอบคำถามสุขภาพด้วย Gemini (Firebase AI Logic)
         </p>
       </div>
 
@@ -124,23 +136,47 @@ export const HealthKnowledge: React.FC = () => {
         </div>
       </div>
 
-      {/* AI Smart Health Assistant */}
+      {/* AI Smart Health Assistant (Firebase AI Logic - Gemini) */}
       <div className="bg-gradient-to-br from-emerald-900 via-teal-900 to-slate-900 text-white rounded-xl p-6 border border-emerald-800 shadow-md space-y-4">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-emerald-500 text-white">
-            <Sparkles className="w-4 h-4" />
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-emerald-500 text-white">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold">AI ผู้ช่วย อสม. อัจฉริยะ (Smart Health AI)</h2>
+              <p className="text-xs text-emerald-200">
+                ขับเคลื่อนด้วย Gemini ผ่าน Firebase AI Logic • สอบถามเกณฑ์คัดกรองและแนวทางดูแลผู้ป่วย
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-base font-bold">AI ผู้ช่วย อสม. อัจฉริยะ (Smart Health AI)</h2>
-            <p className="text-xs text-emerald-200">
-              สอบถามคำแนะนำการดูแลสุขภาพ, การคัดกรอง, หรือเกณฑ์ส่งต่อผู้ป่วย
-            </p>
-          </div>
+          <span className="text-[11px] font-mono bg-emerald-800/80 border border-emerald-600/50 text-emerald-200 px-2.5 py-1 rounded-full">
+            gemini-3.8-flash
+          </span>
+        </div>
+
+        {/* Quick Prompts */}
+        <div className="flex flex-wrap gap-1.5">
+          {QUICK_PROMPTS.map((q) => (
+            <button
+              key={q}
+              type="button"
+              disabled={isAiLoading}
+              onClick={() => {
+                setAiQuestion(q);
+                void runAiQuery(q);
+              }}
+              className="text-[11px] bg-white/10 hover:bg-white/20 text-emerald-100 px-2.5 py-1 rounded-lg border border-white/15 transition-colors disabled:opacity-50 text-left"
+            >
+              {q}
+            </button>
+          ))}
         </div>
 
         <form onSubmit={handleAskAI} className="flex flex-col sm:flex-row gap-2">
           <input
             type="text"
+            data-testid="ai_question_input"
             placeholder="พิมพ์คำถาม เช่น ค่าน้ำตาลเกิน 140 ต้องทำอย่างไร?, การดูแลผู้ป่วยติดเตียง..."
             value={aiQuestion}
             onChange={(e) => setAiQuestion(e.target.value)}
@@ -148,17 +184,46 @@ export const HealthKnowledge: React.FC = () => {
           />
           <button
             type="submit"
+            data-testid="ai_ask_button"
             disabled={isAiLoading || !aiQuestion.trim()}
-            className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-bold text-sm rounded-xl transition-colors disabled:opacity-50"
+            className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-bold text-sm rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shrink-0"
           >
-            {isAiLoading ? 'กำลังประมวลผล...' : 'ถาม AI'}
+            {isAiLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>กำลังวิเคราะห์...</span>
+              </>
+            ) : (
+              <>
+                <Send className="w-4 h-4" />
+                <span>ถาม AI</span>
+              </>
+            )}
           </button>
         </form>
 
-        {aiAnswer && (
+        {aiError && (
+          <div
+            role="alert"
+            className="p-4 bg-rose-950/70 rounded-xl border border-rose-500/50 text-xs sm:text-sm text-rose-100 flex items-start gap-2.5"
+          >
+            <AlertTriangle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold text-rose-200 block">เกิดข้อผิดพลาดในการเรียกใช้ AI</span>
+              <span className="text-xs text-rose-100/90">{aiError}</span>
+            </div>
+          </div>
+        )}
+
+        {aiAnswer !== null && (aiAnswer.length > 0 || isAiLoading) && (
           <div className="p-4 bg-white/10 rounded-xl border border-white/20 text-xs sm:text-sm text-emerald-50 space-y-2 animate-in fade-in">
-            <span className="font-bold text-emerald-300 block">คำแนะนำทางการพยาบาลและ อสม.:</span>
-            <p className="leading-relaxed">{aiAnswer}</p>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-emerald-300">คำแนะนำสำหรับ อสม.:</span>
+              {isAiLoading && (
+                <span className="text-[11px] text-emerald-200 animate-pulse">กำลังพิมพ์คำตอบ...</span>
+              )}
+            </div>
+            <div className="leading-relaxed whitespace-pre-wrap">{aiAnswer}</div>
           </div>
         )}
       </div>

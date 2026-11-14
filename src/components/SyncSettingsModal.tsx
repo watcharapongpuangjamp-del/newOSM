@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   RefreshCw,
@@ -14,33 +14,34 @@ import {
   Smartphone,
   ChevronDown,
   GitCompare,
+  LogIn,
+  LogOut,
+  Cloud,
 } from 'lucide-react';
+import type { User } from 'firebase/auth';
 import { storage } from '../services/storage';
+import {
+  getFirebaseProjectId,
+  getFirestoreDatabaseId,
+  signInWithGoogleAccount,
+  signOutFirebase,
+} from '../services/firebase';
+import {
+  syncWithFirestore,
+  type CloudSyncResult,
+  type SyncConflict,
+} from '../services/cloudSync';
 import { Household, Person, HealthScreening, Tombstone, AuditLog } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDrag } from '@use-gesture/react';
-
-interface DiffField {
-  label: string;
-  localValue: string;
-  serverValue: string;
-  isModified: boolean;
-}
-
-interface SyncConflict {
-  id: string;
-  type: 'household' | 'person';
-  title: string;
-  localTime: string;
-  serverTime: string;
-  diffFields: DiffField[];
-}
 
 interface SyncSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onResetData: () => void;
   onClearData: () => void;
+  onDataReload: () => Promise<void>;
+  firebaseUser: User | null;
   households: Household[];
   persons: Person[];
   screenings: HealthScreening[];
@@ -53,6 +54,8 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
   onClose,
   onResetData,
   onClearData,
+  onDataReload,
+  firebaseUser,
   households,
   persons,
   screenings,
@@ -60,87 +63,118 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
   logs,
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncDone, setSyncDone] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [syncResult, setSyncResult] = useState<CloudSyncResult | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
+  const [resolveChoices, setResolveChoices] = useState<Record<string, 'local' | 'server'>>({});
   const [showConflictModal, setShowConflictModal] = useState(false);
+  const [pendingQueueCount, setPendingQueueCount] = useState(0);
   const [dragY, setDragY] = useState(0);
 
-  const bindDrag = useDrag(({ down, movement: [, my] }) => {
-    if (my > 0) {
-      setDragY(down ? my : 0);
-      if (!down && my > 100) {
-        onClose();
+  useEffect(() => {
+    if (!isOpen) return;
+    storage
+      .getSyncQueue()
+      .then((q) => setPendingQueueCount(q.length))
+      .catch(() => setPendingQueueCount(0));
+  }, [isOpen, syncResult]);
+
+  const bindDrag = useDrag(
+    ({ down, movement: [, my] }) => {
+      if (my > 0) {
+        setDragY(down ? my : 0);
+        if (!down && my > 100) {
+          onClose();
+        }
       }
-    }
-  }, { filterTaps: true });
+    },
+    { filterTaps: true }
+  );
 
   if (!isOpen) return null;
 
-
-
-  const handleTriggerSync = (forceConflict = false) => {
-    setIsSyncing(true);
-    setSyncDone(false);
-
-    setTimeout(async () => {
-      setIsSyncing(false);
-      if (forceConflict || (households.length > 0 && Math.random() > 0.3)) {
-        const h = households[0];
-        const sampleConflict: SyncConflict = {
-          id: h?.id || 'h-sample-1',
-          type: 'household',
-          title: `ข้อมูลหลังคาเรือน บ้านเลขที่ ${h?.houseNo || '12/1'} หมู่ ${h?.villageNo || 1}`,
-          localTime: new Date(Date.now() - 1000 * 60 * 15).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
-          serverTime: new Date(Date.now() - 1000 * 60 * 2).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
-          diffFields: [
-            {
-              label: 'หัวหน้าครัวเรือน',
-              localValue: h?.headOfHouseholdName || 'นายสมชาย ใจดี',
-              serverValue: h?.headOfHouseholdName || 'นายสมชาย ใจดี',
-              isModified: false,
-            },
-            {
-              label: 'คะแนนสุขภิบาล',
-              localValue: h?.sanitationRating === 'good' ? 'ดี (Good)' : 'พอใช้ (Fair)',
-              serverValue: 'พอใช้ (Fair)',
-              isModified: true,
-            },
-            {
-              label: 'พบลูกน้ำยุงลาย',
-              localValue: h?.mosquitoLarvaFound ? 'พบ (Found)' : 'ไม่พบ (Not Found)',
-              serverValue: 'พบ (Found)',
-              isModified: true,
-            },
-            {
-              label: 'แหล่งน้ำใช้',
-              localValue: h?.waterSource || 'ประปาหมู่บ้าน',
-              serverValue: 'น้ำบาดาล',
-              isModified: true,
-            },
-            {
-              label: 'ผู้รับผิดชอบ (อสม.)',
-              localValue: 'อสม. สมศรี รักสุขภาพ',
-              serverValue: 'อสม. มาיר์ ใจดี',
-              isModified: true,
-            },
-          ],
-        };
-        setConflicts([sampleConflict]);
-        setShowConflictModal(true);
-        await storage.log('sync', 'system', `[Conflict] ตรวจพบความขัดแย้งข้อมูลระหว่างเครื่องและเซิร์ฟเวอร์ (บ้านเลขที่ ${h?.houseNo || '12/1'})`);
-      } else {
-        setSyncDone(true);
-        await storage.log('sync', 'system', 'ดำเนินการประสานข้อมูล (Sync) กับ Cloud สำเร็จ (ไม่มีความขัดแย้ง)');
+  const handleGoogleSignIn = async () => {
+    setIsSigningIn(true);
+    setSyncError(null);
+    try {
+      const user = await signInWithGoogleAccount();
+      if (user) {
+        await handleTriggerSync(user);
       }
-    }, 1000);
+    } catch (err: any) {
+      console.error('Google Sign-In failed:', err);
+      const code = err?.code || '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        setSyncError('ยกเลิกการเข้าสู่ระบบด้วย Google กรุณาลองใหม่อีกครั้ง');
+      } else {
+        setSyncError(err?.message || 'เข้าสู่ระบบ Google ไม่สำเร็จ');
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleGoogleSignOut = async () => {
+    setSyncError(null);
+    setSyncResult(null);
+    await signOutFirebase();
+  };
+
+  const handleTriggerSync = async (
+    targetUser: User | null = firebaseUser,
+    overrides?: Record<string, 'local' | 'server'>
+  ) => {
+    if (!targetUser) {
+      setSyncError('กรุณาเข้าสู่ระบบด้วยบัญชี Google ก่อนซิงค์ข้อมูลกับ Cloud Firestore');
+      return;
+    }
+
+    setIsSyncing(true);
+    setSyncError(null);
+    try {
+      const result = await syncWithFirestore(targetUser, {
+        resolveChoices: overrides || resolveChoices,
+      });
+      setSyncResult(result);
+
+      if (result.conflicts.length > 0) {
+        setConflicts(result.conflicts);
+        setShowConflictModal(true);
+      } else {
+        setConflicts([]);
+        setShowConflictModal(false);
+        setResolveChoices({});
+      }
+
+      await onDataReload();
+      const q = await storage.getSyncQueue();
+      setPendingQueueCount(q.length);
+    } catch (err: any) {
+      console.error('Firestore sync error:', err);
+      setSyncError(
+        err?.message || 'เกิดข้อผิดพลาดระหว่างซิงค์ข้อมูลกับ Cloud Firestore กรุณาตรวจสอบอินเทอร์เน็ตและสิทธิ์ผู้ใช้'
+      );
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleResolveConflict = async (conflictId: string, choice: 'local' | 'server') => {
-    setConflicts((prev) => prev.filter((c) => c.id !== conflictId));
-    if (conflicts.length <= 1) {
+    const updatedChoices = { ...resolveChoices, [conflictId]: choice };
+    setResolveChoices(updatedChoices);
+    const remaining = conflicts.filter((c) => c.id !== conflictId);
+    setConflicts(remaining);
+
+    await storage.log(
+      'sync',
+      'firestore',
+      `เลือกใช้ข้อมูลฝั่ง ${choice === 'local' ? 'เครื่องท้องถิ่น' : 'Cloud Server'} สำหรับรายการ ${conflictId}`
+    );
+
+    if (remaining.length === 0) {
       setShowConflictModal(false);
-      setSyncDone(true);
-      await storage.log('sync', 'system', `[Resolved] แก้ไขความขัดแย้งข้อมูลสำเร็จ โดยเลือกใช้ข้อมูลฝั่ง: ${choice === 'local' ? 'เครื่องท้องถิ่น' : 'เซิร์ฟเวอร์ Cloud'}`);
+      await handleTriggerSync(firebaseUser, updatedChoices);
     }
   };
 
@@ -166,7 +200,10 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
         className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-2xl my-8 overflow-hidden flex flex-col max-h-[90vh]"
       >
         {/* Drag Indicator handle for mobile swipe-to-dismiss */}
-        <div {...bindDrag()} className="w-full pt-3 pb-1 flex justify-center cursor-grab active:cursor-grabbing bg-slate-50 border-b border-slate-100 md:hidden">
+        <div
+          {...bindDrag()}
+          className="w-full pt-3 pb-1 flex justify-center cursor-grab active:cursor-grabbing bg-slate-50 border-b border-slate-100 md:hidden"
+        >
           <div className="w-12 h-1.5 bg-slate-300 rounded-full flex items-center justify-center">
             <ChevronDown className="w-4 h-4 text-slate-400" />
           </div>
@@ -176,7 +213,7 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
         <div className="px-6 py-4 bg-emerald-700 text-white flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-emerald-200" />
-            <h2 className="text-lg font-bold">สถานะระบบและความปลอดภัยข้อมูล (Sync & Security)</h2>
+            <h2 className="text-lg font-bold">การเชื่อมต่อ Cloud Firestore & ความปลอดภัยข้อมูล</h2>
           </div>
           <button
             onClick={onClose}
@@ -188,50 +225,113 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
 
         {/* Content */}
         <div className="p-6 overflow-y-auto space-y-6">
-          {/* Sync Status Banner */}
-          <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className="p-2.5 bg-emerald-600 text-white rounded-xl mt-0.5 shadow-sm">
-                <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-900 text-sm">
-                    สถานะการทำงาน: ออฟไลน์พร้อมซิงค์ (Offline-First)
-                  </span>
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          {/* Firebase Account & Sync Status Banner */}
+          <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 space-y-4 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                {firebaseUser?.photoURL ? (
+                  <img
+                    src={firebaseUser.photoURL}
+                    alt={firebaseUser.displayName || 'User'}
+                    className="w-11 h-11 rounded-xl border border-emerald-300 shadow-sm shrink-0"
+                  />
+                ) : (
+                  <div className="p-2.5 bg-emerald-600 text-white rounded-xl mt-0.5 shadow-sm shrink-0">
+                    <Cloud className={`w-5 h-5 ${isSyncing ? 'animate-pulse' : ''}`} />
+                  </div>
+                )}
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-slate-900 text-sm">
+                      {firebaseUser
+                        ? `เชื่อมต่อบัญชี: ${firebaseUser.displayName || firebaseUser.email}`
+                        : 'โหมดออฟไลน์ในเครื่อง (ยังไม่ได้เชื่อมบัญชี Google)'}
+                    </span>
+                    <span
+                      className={`w-2.5 h-2.5 rounded-full ${
+                        firebaseUser ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'
+                      }`}
+                    ></span>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    {firebaseUser ? (
+                      <>
+                        {firebaseUser.email} • คิวรอซิงค์ในเครื่อง: <strong>{pendingQueueCount}</strong> รายการ
+                      </>
+                    ) : (
+                      'เข้าสู่ระบบด้วยบัญชี Google เพื่อสำรองและซิงค์ข้อมูลครัวเรือน ประชากร และการคัดกรองขึ้น Firebase Cloud Firestore อย่างปลอดภัย'
+                    )}
+                  </p>
                 </div>
-                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                  ข้อมูลจะถูกบันทึกในอุปกรณ์ทันที และเตรียมพร้อมซิงค์กับ Cloud พร้อมระบบตรวจจับความขัดแย้งอัตโนมัติ
-                </p>
+              </div>
+
+              <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 flex-wrap">
+                {firebaseUser ? (
+                  <>
+                    <button
+                      type="button"
+                      data-testid="sync_now_button"
+                      onClick={() => void handleTriggerSync(firebaseUser)}
+                      disabled={isSyncing}
+                      className="flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 shadow-xs"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                      <span>{isSyncing ? 'กำลังซิงค์...' : 'ซิงค์กับ Cloud ตอนนี้'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="google_signout_button"
+                      onClick={() => void handleGoogleSignOut()}
+                      disabled={isSyncing}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition-colors"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>ออกจากระบบ</span>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="google_signin_button"
+                    onClick={() => void handleGoogleSignIn()}
+                    disabled={isSigningIn}
+                    className="flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors disabled:opacity-50 shadow-sm"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>{isSigningIn ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Google'}</span>
+                  </button>
+                )}
               </div>
             </div>
 
-            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-              <button
-                onClick={() => handleTriggerSync(true)}
-                disabled={isSyncing}
-                title="ทดสอบจำลองความขัดแย้งของข้อมูล"
-                className="px-3 py-2 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 border border-amber-300 shadow-xs flex items-center gap-1.5"
-              >
-                <GitCompare className="w-3.5 h-3.5" />
-                <span>จำลอง Conflict Diff</span>
-              </button>
-              <button
-                onClick={() => handleTriggerSync(false)}
-                disabled={isSyncing}
-                className="flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 shadow-xs"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>{isSyncing ? 'กำลังซิงค์...' : 'กดซิงค์ข้อมูล'}</span>
-              </button>
+            <div className="text-[11px] text-slate-500 bg-white/80 rounded-xl px-3 py-2 border border-emerald-100 flex flex-wrap items-center justify-between gap-2">
+              <span>
+                Project: <code className="font-mono text-slate-700">{getFirebaseProjectId()}</code>
+              </span>
+              <span>
+                Firestore DB:{' '}
+                <code className="font-mono text-slate-700">{getFirestoreDatabaseId()}</code>
+              </span>
             </div>
           </div>
 
-          {syncDone && (
+          {syncError && (
+            <div
+              role="alert"
+              className="p-3 bg-rose-50 text-rose-800 text-xs rounded-xl flex items-start gap-2 font-medium border border-rose-200"
+            >
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span>{syncError}</span>
+            </div>
+          )}
+
+          {syncResult && syncResult.conflicts.length === 0 && !syncError && (
             <div className="p-3 bg-emerald-100 text-emerald-800 text-xs rounded-xl flex items-center gap-2 font-medium border border-emerald-200">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>ข้อมูลได้รับการตรวจสอบความสมบูรณ์และประสานกับ Cloud เรียบร้อยแล้ว (ไม่มีความขัดแย้ง)</span>
+              <span>
+                ซิงค์ข้อมูลกับ Cloud Firestore เรียบร้อยแล้ว (ส่งขึ้น {syncResult.pushedCount}, ดึงลง{' '}
+                {syncResult.pulledCount}, ลบ {syncResult.deletedCount} รายการ)
+              </span>
             </div>
           )}
 
@@ -239,7 +339,7 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
               <Database className="w-4 h-4 text-slate-400" />
-              <span>สถิติข้อมูลที่จัดเก็บในฐานข้อมูล</span>
+              <span>สถิติข้อมูลที่จัดเก็บในฐานข้อมูล SQLite ท้องถิ่น</span>
             </h3>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
@@ -266,11 +366,12 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
           <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2 shadow-2xs">
             <div className="flex items-center gap-2 text-slate-800 font-bold">
               <Lock className="w-4 h-4 text-emerald-600" />
-              <span>การจำกัดสิทธิ์และการแบ่งส่วนข้อมูล (Partition Security)</span>
+              <span>การแยกสิทธิ์ข้อมูลระดับบัญชีผู้ใช้ (Zero-Trust User Isolation)</span>
             </div>
             <p className="text-slate-600 leading-relaxed">
-              ตามสถาปัตยกรรมความปลอดภัยของ Smart OSM ข้อมูลจะถูกแบ่งกลุ่มตามเขตรับผิดชอบ (Village
-              Partitioning) โดย อสม. สามารถเข้าถึงและแก้ไขได้เฉพาะหลังคาเรือนและประชากรในหมู่บ้านที่ได้รับมอบหมาย
+              ข้อมูลทุกชุดบน Cloud Firestore ถูกแยกจัดเก็บเฉพาะบัญชีผู้ใช้ที่ยืนยันตัวตนผ่าน Google Sign-In
+              ภายใต้เส้นทาง <code className="font-mono">/users/&#123;uid&#125;/...</code>{' '}
+              พร้อมกฎความปลอดภัยที่ตรวจสอบสิทธิ์เจ้าของและโครงสร้างข้อมูลทุกครั้ง
             </p>
           </div>
 
@@ -370,12 +471,17 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
                 <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 leading-relaxed flex items-start gap-2.5">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <div>
-                    <strong>ตรวจพบความขัดแย้งการแก้ไขข้อมูล (Sync Conflict):</strong> รายการด้านล่างถูกแก้ไขทั้งในอุปกรณ์ของคุณ (Local) และบน Cloud Server โปรดตรวจสอบตารางเปรียบเทียบ (Side-by-Side Diff) และเลือกเวอร์ชันที่ต้องการเก็บรักษา
+                    <strong>ตรวจพบความขัดแย้งการแก้ไขข้อมูล (Sync Conflict):</strong>{' '}
+                    รายการด้านล่างถูกแก้ไขทั้งในอุปกรณ์ของคุณ (Local) และบน Cloud Server
+                    โปรดเลือกเวอร์ชันที่ต้องการเก็บรักษา
                   </div>
                 </div>
 
                 {conflicts.map((conflict) => (
-                  <div key={conflict.id} className="border border-slate-200 rounded-2xl p-5 space-y-4 bg-slate-50/60 shadow-xs">
+                  <div
+                    key={conflict.id}
+                    className="border border-slate-200 rounded-2xl p-5 space-y-4 bg-slate-50/60 shadow-xs"
+                  >
                     <div className="flex items-center justify-between border-b border-slate-200 pb-3">
                       <div>
                         <span className="font-bold text-slate-900 text-sm block">{conflict.title}</span>
@@ -386,7 +492,6 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
                       </span>
                     </div>
 
-                    {/* Side-by-Side Diff Comparison Table */}
                     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-2xs">
                       <table className="w-full text-left border-collapse text-xs">
                         <thead>
@@ -410,7 +515,9 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
                           {conflict.diffFields.map((field, idx) => (
                             <tr
                               key={idx}
-                              className={field.isModified ? 'bg-amber-50/40 hover:bg-amber-50/80 transition' : 'hover:bg-slate-50'}
+                              className={
+                                field.isModified ? 'bg-amber-50/40 hover:bg-amber-50/80 transition' : 'hover:bg-slate-50'
+                              }
                             >
                               <td className="p-3 font-semibold text-slate-700">{field.label}</td>
                               <td
@@ -437,17 +544,16 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
                       </table>
                     </div>
 
-                    {/* Resolution Choice Action Buttons */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                       <button
-                        onClick={() => handleResolveConflict(conflict.id, 'local')}
+                        onClick={() => void handleResolveConflict(conflict.id, 'local')}
                         className="py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2"
                       >
                         <Check className="w-4 h-4" />
                         <span>เก็บข้อมูลในเครื่อง (Keep Local)</span>
                       </button>
                       <button
-                        onClick={() => handleResolveConflict(conflict.id, 'server')}
+                        onClick={() => void handleResolveConflict(conflict.id, 'server')}
                         className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2"
                       >
                         <Check className="w-4 h-4" />

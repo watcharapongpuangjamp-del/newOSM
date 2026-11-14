@@ -1,0 +1,281 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated VHV user profile and cloud sync metadata (strictly owner-isolated PII)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID matching document ID" },
+        "displayName": { "type": "string", "description": "Display name from Google account" },
+        "email": { "type": "string", "description": "Google account email (optional)" },
+        "photoURL": { "type": "string", "description": "Avatar URL (optional)" },
+        "lastSyncAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last completed cloud sync" },
+        "serverCreatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via serverTimestamp() on creation" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via serverTimestamp() on write" }
+      },
+      "required": ["uid", "displayName", "serverCreatedAt", "serverUpdatedAt"]
+    },
+    "VhvMember": {
+      "title": "VhvMember",
+      "description": "Village Health Volunteer (อสม.) directory record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "citizenId": { "type": "string" },
+        "phone": { "type": "string" },
+        "villageNo": { "type": "integer" },
+        "zoneName": { "type": "string" },
+        "assignedHouseIds": { "type": "array" },
+        "isActive": { "type": "boolean" },
+        "registeredDate": { "type": "string" },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "name",
+        "citizenId",
+        "phone",
+        "villageNo",
+        "zoneName",
+        "assignedHouseIds",
+        "isActive",
+        "registeredDate",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "Household": {
+      "title": "Household",
+      "description": "Household registry, sanitation status, larva survey, and GPS coordinates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "houseNo": { "type": "string" },
+        "villageNo": { "type": "integer" },
+        "villageName": { "type": "string" },
+        "subdistrict": { "type": "string" },
+        "district": { "type": "string" },
+        "province": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "headOfHouseholdName": { "type": "string" },
+        "vhvMemberId": { "type": "string" },
+        "sanitationRating": { "type": "string", "enum": ["good", "fair", "poor"] },
+        "mosquitoLarvaFound": { "type": "boolean" },
+        "waterSource": { "type": "string" },
+        "wasteManagement": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "houseNo",
+        "villageNo",
+        "villageName",
+        "subdistrict",
+        "district",
+        "province",
+        "latitude",
+        "longitude",
+        "headOfHouseholdName",
+        "vhvMemberId",
+        "sanitationRating",
+        "mosquitoLarvaFound",
+        "waterSource",
+        "wasteManagement",
+        "createdAt",
+        "updatedAt",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "Person": {
+      "title": "Person",
+      "description": "Community resident demographics, care category, chronic diseases, and latest vitals",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "householdId": { "type": "string" },
+        "villageNo": { "type": "integer" },
+        "citizenId": { "type": "string" },
+        "title": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "gender": { "type": "string", "enum": ["male", "female"] },
+        "birthDate": { "type": "string" },
+        "birthDatePrecision": { "type": "string", "enum": ["full", "year"] },
+        "bloodGroup": { "type": "string", "enum": ["A", "B", "AB", "O", "Rh-", "Unknown"] },
+        "phone": { "type": "string" },
+        "occupation": { "type": "string" },
+        "residentStatus": { "type": "string", "enum": ["resident", "moved_out", "deceased", "temporary"] },
+        "careCategory": { "type": "string", "enum": ["active", "homebound", "bedridden"] },
+        "chronicDiseases": { "type": "array" },
+        "weightKg": { "type": "number" },
+        "heightCm": { "type": "number" },
+        "bmi": { "type": "number" },
+        "systolic": { "type": "number" },
+        "diastolic": { "type": "number" },
+        "bloodSugarDtx": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "householdId",
+        "villageNo",
+        "citizenId",
+        "title",
+        "firstName",
+        "lastName",
+        "gender",
+        "birthDate",
+        "bloodGroup",
+        "residentStatus",
+        "careCategory",
+        "chronicDiseases",
+        "createdAt",
+        "updatedAt",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "HealthScreening": {
+      "title": "HealthScreening",
+      "description": "Point-in-time NCD and vital-sign health screening record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "personId": { "type": "string" },
+        "householdId": { "type": "string" },
+        "villageNo": { "type": "integer" },
+        "date": { "type": "string" },
+        "vhvMemberId": { "type": "string" },
+        "weightKg": { "type": "number" },
+        "heightCm": { "type": "number" },
+        "bmi": { "type": "number" },
+        "systolic": { "type": "number" },
+        "diastolic": { "type": "number" },
+        "pulse": { "type": "number" },
+        "bloodSugarDtx": { "type": "number" },
+        "waistCm": { "type": "number" },
+        "smoker": { "type": "boolean" },
+        "alcohol": { "type": "boolean" },
+        "notes": { "type": "string" },
+        "advice": { "type": "string" },
+        "needDoctorReferral": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "personId",
+        "householdId",
+        "villageNo",
+        "date",
+        "vhvMemberId",
+        "weightKg",
+        "heightCm",
+        "bmi",
+        "systolic",
+        "diastolic",
+        "smoker",
+        "alcohol",
+        "needDoctorReferral",
+        "createdAt",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Home visit, vitals check, or clinical follow-up appointment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "personId": { "type": "string" },
+        "householdId": { "type": "string" },
+        "villageNo": { "type": "integer" },
+        "vhvMemberId": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["home_visit", "vitals_check", "hospital_visit", "vaccine", "larva_survey", "other"] },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "location": { "type": "string" },
+        "status": { "type": "string", "enum": ["upcoming", "completed", "missed", "cancelled"] },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "personId",
+        "householdId",
+        "villageNo",
+        "vhvMemberId",
+        "title",
+        "type",
+        "date",
+        "location",
+        "status",
+        "createdAt",
+        "updatedAt",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "Tombstone": {
+      "title": "Tombstone",
+      "description": "Deletion marker for offline-first bidirectional cloud sync",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "collection": { "type": "string", "enum": ["households", "persons", "screenings", "vhv_members", "appointments"] },
+        "villageNo": { "type": "integer" },
+        "deletedAt": { "type": "string" },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "collection", "villageNo", "deletedAt", "serverCreatedAt", "serverUpdatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-isolated VHV user profile and sync metadata"
+    },
+    "/users/{userId}/vhv_members/{memberId}": {
+      "schema": { "$ref": "#/entities/VhvMember" },
+      "description": "User-scoped Village Health Volunteer directory records"
+    },
+    "/users/{userId}/households/{householdId}": {
+      "schema": { "$ref": "#/entities/Household" },
+      "description": "User-scoped household registry records"
+    },
+    "/users/{userId}/persons/{personId}": {
+      "schema": { "$ref": "#/entities/Person" },
+      "description": "User-scoped community resident records"
+    },
+    "/users/{userId}/screenings/{screeningId}": {
+      "schema": { "$ref": "#/entities/HealthScreening" },
+      "description": "User-scoped health screening records"
+    },
+    "/users/{userId}/appointments/{appointmentId}": {
+      "schema": { "$ref": "#/entities/Appointment" },
+      "description": "User-scoped follow-up appointment records"
+    },
+    "/users/{userId}/tombstones/{tombstoneId}": {
+      "schema": { "$ref": "#/entities/Tombstone" },
+      "description": "User-scoped deletion tombstones for offline-first sync"
+    }
+  }
+}

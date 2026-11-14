@@ -20,6 +20,11 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { BottomNav } from './components/BottomNav';
 import { useSwipe } from './hooks/useSwipe';
 import { PWAUpdateBanner } from './components/PWAUpdateBanner';
+import type { User } from 'firebase/auth';
+import { subscribeAuthState } from './services/firebase';
+import { syncWithFirestore } from './services/cloudSync';
+import { QrScannerModal } from './components/QrScannerModal';
+import { QrCodeModal, QrTarget } from './components/QrCodeModal';
 
 export const App: React.FC = () => {
   // Navigation & Filter state
@@ -89,6 +94,11 @@ export const App: React.FC = () => {
 
   const [isDataExchangeOpen, setIsDataExchangeOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
+  const [qrCodeTarget, setQrCodeTarget] = useState<QrTarget | null>(null);
+  const [prefilledCitizenId, setPrefilledCitizenId] = useState<string | undefined>(undefined);
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
 
   // Map focus helper
   const [mapFocusedHousehold, setMapFocusedHousehold] = useState<Household | null>(null);
@@ -131,15 +141,36 @@ export const App: React.FC = () => {
     };
     init();
 
+    const unsubscribeAuth = subscribeAuthState((user) => {
+      setFirebaseUser(user);
+      if (user && navigator.onLine) {
+        setIsCloudSyncing(true);
+        syncWithFirestore(user)
+          .then((res) => {
+            if (res.pushedCount + res.pulledCount + res.deletedCount > 0) {
+              return loadData();
+            }
+          })
+          .catch((err) => console.warn('Initial Firestore sync error:', err))
+          .finally(() => setIsCloudSyncing(false));
+      }
+    });
+
     const handleOnline = async () => {
-      const res = await storage.processBackgroundSync();
-      if (res.successCount > 0) {
-        await loadData();
+      setIsCloudSyncing(true);
+      try {
+        const res = await storage.processBackgroundSync();
+        if (res.successCount > 0) {
+          await loadData();
+        }
+      } finally {
+        setIsCloudSyncing(false);
       }
     };
 
     window.addEventListener('online', handleOnline);
     return () => {
+      unsubscribeAuth();
       window.removeEventListener('online', handleOnline);
     };
   }, [loadData]);
@@ -199,15 +230,17 @@ export const App: React.FC = () => {
   };
 
   // --- Handlers: Person ---
-  const handleOpenAddPerson = (householdId?: string) => {
+  const handleOpenAddPerson = (householdId?: string, citizenId?: string) => {
     setPersonToEdit(null);
     setDefaultHouseholdIdForPerson(householdId);
+    setPrefilledCitizenId(citizenId);
     setIsPersonModalOpen(true);
   };
 
   const handleEditPerson = (person: Person) => {
     setPersonToEdit(person);
     setDefaultHouseholdIdForPerson(person.householdId);
+    setPrefilledCitizenId(undefined);
     setIsPersonModalOpen(true);
   };
 
@@ -274,8 +307,11 @@ export const App: React.FC = () => {
         onVillageChange={setSelectedVillageNo}
         onOpenSyncModal={() => setIsSyncModalOpen(true)}
         onOpenDataExchange={() => setIsDataExchangeOpen(true)}
+        onOpenQrScanner={() => setIsQrScannerOpen(true)}
         displayMode={displayMode}
         onDisplayModeChange={setDisplayMode}
+        firebaseUser={firebaseUser}
+        isCloudSyncing={isCloudSyncing}
       />
 
       {/* Main Container */}
@@ -294,6 +330,7 @@ export const App: React.FC = () => {
             onOpenAddPerson={() => handleOpenAddPerson()}
             onOpenScreening={handleOpenScreening}
             onOpenAppointments={handleOpenAppointments}
+            onOpenQrScanner={() => setIsQrScannerOpen(true)}
           />
         )}
 
@@ -309,6 +346,8 @@ export const App: React.FC = () => {
             onDeleteHousehold={handleDeleteHousehold}
             onViewHouseholdDetail={handleViewHouseholdDetail}
             onOpenMapAtHousehold={handleOpenMapAtHousehold}
+            onOpenQrScanner={() => setIsQrScannerOpen(true)}
+            onShowHouseholdQr={(h) => setQrCodeTarget({ type: 'household', household: h })}
           />
         )}
 
@@ -323,6 +362,8 @@ export const App: React.FC = () => {
             onDeletePerson={handleDeletePerson}
             onOpenScreening={handleOpenScreening}
             onOpenAppointments={handleOpenAppointments}
+            onOpenQrScanner={() => setIsQrScannerOpen(true)}
+            onShowPersonQr={(p, h) => setQrCodeTarget({ type: 'person', person: p, household: h })}
           />
         )}
 
@@ -350,7 +391,15 @@ export const App: React.FC = () => {
           />
         )}
 
-        {currentTab === 'knowledge' && <HealthKnowledge />}
+        {currentTab === 'knowledge' && (
+          <HealthKnowledge
+            communitySummary={`ครัวเรือนในระบบ ${households.length} หลังคาเรือน, ประชากร ${persons.length} คน, ผู้ป่วยติดเตียง ${
+              persons.filter((p) => p.careCategory === 'bedridden').length
+            } คน, ติดบ้าน ${persons.filter((p) => p.careCategory === 'homebound').length} คน, พบบ้านที่มีลูกน้ำยุงลาย ${
+              households.filter((h) => h.mosquitoLarvaFound).length
+            } หลัง`}
+          />
+        )}
       </main>
 
       {/* Footer */}
@@ -395,6 +444,8 @@ export const App: React.FC = () => {
           setIsHouseholdDetailOpen(false);
           handleOpenAppointments(p);
         }}
+        onShowHouseholdQr={(h) => setQrCodeTarget({ type: 'household', household: h })}
+        onShowPersonQr={(p, h) => setQrCodeTarget({ type: 'person', person: p, household: h })}
       />
 
       {/* Person Modal (Add/Edit) */}
@@ -402,9 +453,13 @@ export const App: React.FC = () => {
         isOpen={isPersonModalOpen}
         personToEdit={personToEdit}
         defaultHouseholdId={defaultHouseholdIdForPerson}
+        initialCitizenId={prefilledCitizenId}
         households={households}
         villages={villages}
-        onClose={() => setIsPersonModalOpen(false)}
+        onClose={() => {
+          setIsPersonModalOpen(false);
+          setPrefilledCitizenId(undefined);
+        }}
         onSave={handleSavePerson}
       />
 
@@ -452,11 +507,36 @@ export const App: React.FC = () => {
         onClose={() => setIsSyncModalOpen(false)}
         onResetData={handleResetData}
         onClearData={handleClearData}
+        onDataReload={loadData}
+        firebaseUser={firebaseUser}
         households={households}
         persons={persons}
         screenings={screenings}
         tombstones={tombstones}
         logs={auditLogs}
+      />
+
+      {/* QR Code Camera Scanner Modal */}
+      <QrScannerModal
+        isOpen={isQrScannerOpen}
+        households={households}
+        persons={persons}
+        vhvMembers={vhvMembers}
+        onClose={() => setIsQrScannerOpen(false)}
+        onViewHouseholdDetail={handleViewHouseholdDetail}
+        onEditHousehold={handleEditHousehold}
+        onOpenMapAtHousehold={handleOpenMapAtHousehold}
+        onOpenScreening={handleOpenScreening}
+        onOpenAppointments={handleOpenAppointments}
+        onEditPerson={handleEditPerson}
+        onRegisterPersonWithCitizenId={(cid) => handleOpenAddPerson(undefined, cid)}
+      />
+
+      {/* QR Code Generator / Badge Modal */}
+      <QrCodeModal
+        isOpen={qrCodeTarget !== null}
+        target={qrCodeTarget}
+        onClose={() => setQrCodeTarget(null)}
       />
 
       {/* PWA Service Worker Update Banner */}

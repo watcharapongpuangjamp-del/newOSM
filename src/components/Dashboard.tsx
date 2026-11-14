@@ -19,6 +19,7 @@ import {
   Clock,
   CalendarDays,
   CheckCircle2,
+  QrCode,
 } from 'lucide-react';
 import { Household, Person, HealthScreening, Village, Appointment, VhvMember } from '../types';
 import { calculateAge, formatThaiDate } from '../utils/thaiId';
@@ -39,6 +40,7 @@ interface DashboardProps {
   onOpenAddPerson: () => void;
   onOpenScreening: (person: Person) => void;
   onOpenAppointments?: (person: Person) => void;
+  onOpenQrScanner: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -54,6 +56,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onOpenAddPerson,
   onOpenScreening,
   onOpenAppointments,
+  onOpenQrScanner,
 }) => {
   const [isLoading, setIsLoading] = React.useState(true);
   React.useEffect(() => {
@@ -79,36 +82,50 @@ export const Dashboard: React.FC<DashboardProps> = ({
     );
   }
 
+  // Filter by selected village when applicable
+  const visibleHouseholds =
+    selectedVillageNo === 0
+      ? households
+      : households.filter((h) => h.villageNo === selectedVillageNo);
+  const visiblePersons =
+    selectedVillageNo === 0
+      ? persons
+      : persons.filter((p) => p.villageNo === selectedVillageNo);
+  const visibleScreenings =
+    selectedVillageNo === 0
+      ? screenings
+      : screenings.filter((s) => s.villageNo === selectedVillageNo);
+
   // Statistics calculations
-  const totalHouseholds = households.length;
-  const totalPersons = persons.length;
-  const malesCount = persons.filter((p) => p.gender === 'male').length;
-  const femalesCount = persons.filter((p) => p.gender === 'female').length;
+  const totalHouseholds = visibleHouseholds.length;
+  const totalPersons = visiblePersons.length;
+  const malesCount = visiblePersons.filter((p) => p.gender === 'male').length;
+  const femalesCount = visiblePersons.filter((p) => p.gender === 'female').length;
 
   // Age 60+
-  const elderlyCount = persons.filter((p) => calculateAge(p.birthDate) >= 60).length;
+  const elderlyCount = visiblePersons.filter((p) => calculateAge(p.birthDate) >= 60).length;
 
   // Care category
-  const bedriddenCount = persons.filter((p) => p.careCategory === 'bedridden').length;
-  const homeboundCount = persons.filter((p) => p.careCategory === 'homebound').length;
-  const activeCount = persons.filter((p) => p.careCategory === 'active').length;
+  const bedriddenCount = visiblePersons.filter((p) => p.careCategory === 'bedridden').length;
+  const homeboundCount = visiblePersons.filter((p) => p.careCategory === 'homebound').length;
+  const activeCount = visiblePersons.filter((p) => p.careCategory === 'active').length;
 
   // Chronic diseases
-  const hypertensionCount = persons.filter((p) =>
+  const hypertensionCount = visiblePersons.filter((p) =>
     p.chronicDiseases.some((d) => d.includes('ความดัน'))
   ).length;
 
-  const diabetesCount = persons.filter((p) =>
+  const diabetesCount = visiblePersons.filter((p) =>
     p.chronicDiseases.some((d) => d.includes('เบาหวาน'))
   ).length;
 
   // Mosquito Larva House Index (HI)
-  const larvaFoundHouseholds = households.filter((h) => h.mosquitoLarvaFound);
+  const larvaFoundHouseholds = visibleHouseholds.filter((h) => h.mosquitoLarvaFound);
   const houseIndexPercent =
     totalHouseholds > 0 ? ((larvaFoundHouseholds.length / totalHouseholds) * 100).toFixed(1) : '0';
 
   // Urgent attention patients (bedridden, doctor referrals, or severe hypertension)
-  const urgentPatients = persons.filter(
+  const urgentPatients = visiblePersons.filter(
     (p) =>
       p.careCategory === 'bedridden' ||
       (p.systolic && p.systolic >= 140) ||
@@ -164,6 +181,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Quick actions */}
         <div className="flex flex-wrap gap-2.5">
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+            onClick={onOpenQrScanner}
+            data-testid="dashboard_qr_scanner_button"
+            className="flex items-center gap-2 px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-900 rounded-xl font-bold text-sm transition-colors shadow-sm cursor-pointer"
+          >
+            <QrCode className="w-4 h-4" />
+            <span>สแกน QR ระบุตัวตน</span>
+          </motion.button>
           <motion.button
             whileTap={{ scale: 0.96 }}
             transition={{ type: 'spring', stiffness: 400, damping: 17 }}
@@ -418,14 +445,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/70">
               <div className="text-xs text-slate-500 font-medium">คัดกรองสุขภาพสะสม</div>
-              <div className="mt-1 text-2xl font-bold text-emerald-700">{screenings.length}</div>
+              <div className="mt-1 text-2xl font-bold text-emerald-700">{visibleScreenings.length}</div>
               <div className="text-[11px] text-slate-500 mt-0.5">ครั้งที่บันทึก</div>
             </div>
 
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/70">
               <div className="text-xs text-slate-500 font-medium">ส่งต่อ รพ.สต.</div>
               <div className="mt-1 text-2xl font-bold text-amber-600">
-                {screenings.filter((s) => s.needDoctorReferral).length}
+                {visibleScreenings.filter((s) => s.needDoctorReferral).length}
               </div>
               <div className="text-[11px] text-slate-500 mt-0.5">เคสที่ต้องพบแพทย์</div>
             </div>

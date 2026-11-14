@@ -13,7 +13,9 @@ import {
   Tablet,
   Smartphone,
   Maximize2,
+  QrCode,
 } from 'lucide-react';
+import type { User } from 'firebase/auth';
 import { Village } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -25,8 +27,11 @@ interface NavbarProps {
   onVillageChange: (no: number) => void;
   onOpenSyncModal: () => void;
   onOpenDataExchange: () => void;
+  onOpenQrScanner: () => void;
   displayMode: 'auto' | 'pc' | 'tablet' | 'mobile';
   onDisplayModeChange: (mode: 'auto' | 'pc' | 'tablet' | 'mobile') => void;
+  firebaseUser?: User | null;
+  isCloudSyncing?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -37,8 +42,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   onVillageChange,
   onOpenSyncModal,
   onOpenDataExchange,
+  onOpenQrScanner,
   displayMode,
   onDisplayModeChange,
+  firebaseUser = null,
+  isCloudSyncing = false,
 }) => {
   return (
     <header className="bg-emerald-700 text-white shadow-md sticky top-0 z-30">
@@ -84,6 +92,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               </select>
             </div>
 
+            {/* QR Code Scanner Button */}
+            <button
+              type="button"
+              onClick={onOpenQrScanner}
+              data-testid="navbar_qr_scanner_button"
+              title="สแกน QR Code ค้นหาครัวเรือนหรือประชากร"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-emerald-800 hover:bg-emerald-50 text-xs sm:text-sm font-bold transition-colors shadow-sm cursor-pointer"
+            >
+              <QrCode className="w-4 h-4 text-emerald-700" />
+              <span className="hidden sm:inline">สแกน QR</span>
+            </button>
+
             {/* Excel / Import / Export Button */}
             <button
               onClick={onOpenDataExchange}
@@ -97,12 +117,23 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Sync Status / Settings Button */}
             <button
               onClick={onOpenSyncModal}
-              title="สถานะระบบและความปลอดภัยข้อมูล"
+              data-testid="navbar_sync_button"
+              title={
+                firebaseUser
+                  ? `เชื่อมต่อ Cloud: ${firebaseUser.displayName || firebaseUser.email}`
+                  : 'เข้าสู่ระบบ Google และตั้งค่า Cloud Sync'
+              }
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-800 hover:bg-emerald-900 text-emerald-100 text-xs sm:text-sm font-medium transition-colors border border-emerald-600/40"
             >
-              <RefreshCw className="w-4 h-4 text-emerald-300" />
-              <span className="hidden md:inline">ระบบ Sync</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <RefreshCw className={`w-4 h-4 text-emerald-300 ${isCloudSyncing ? 'animate-spin' : ''}`} />
+              <span className="hidden md:inline">
+                {firebaseUser ? 'Cloud Sync' : 'เข้าสู่ระบบ / Sync'}
+              </span>
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  firebaseUser ? 'bg-emerald-400 animate-pulse' : 'bg-amber-300'
+                }`}
+              ></span>
             </button>
 
             {/* PWA Install Button */}

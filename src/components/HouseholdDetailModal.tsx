@@ -13,6 +13,7 @@ import {
   ClipboardList,
   CheckCircle2,
   Calendar,
+  QrCode,
 } from 'lucide-react';
 import { Household, Person, VhvMember } from '../types';
 import { calculateAge, formatThaiDate } from '../utils/thaiId';
@@ -29,6 +30,8 @@ interface HouseholdDetailModalProps {
   onDeleteMember: (personId: string) => void;
   onScreenMember: (person: Person) => void;
   onOpenAppointments: (person: Person) => void;
+  onShowHouseholdQr: (household: Household) => void;
+  onShowPersonQr: (person: Person, household: Household) => void;
 }
 
 export const HouseholdDetailModal: React.FC<HouseholdDetailModalProps> = ({
@@ -42,6 +45,8 @@ export const HouseholdDetailModal: React.FC<HouseholdDetailModalProps> = ({
   onDeleteMember,
   onScreenMember,
   onOpenAppointments,
+  onShowHouseholdQr,
+  onShowPersonQr,
 }) => {
   if (!isOpen || !household) return null;
 
@@ -64,12 +69,23 @@ export const HouseholdDetailModal: React.FC<HouseholdDetailModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg text-emerald-200 hover:text-white hover:bg-emerald-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onShowHouseholdQr(household)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+              title="ดูหรือพิมพ์ QR Code ประจำหลังคาเรือน"
+            >
+              <QrCode className="w-4 h-4" />
+              <span>QR บ้าน</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1 rounded-lg text-emerald-200 hover:text-white hover:bg-emerald-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Content */}
@@ -187,6 +203,14 @@ export const HouseholdDetailModal: React.FC<HouseholdDetailModalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => onShowPersonQr(person, household)}
+                          className="p-1.5 text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                          title="ดูบัตร QR ประจำตัวประชากร"
+                        >
+                          <QrCode className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => onOpenAppointments(person)}
                           className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold transition-colors"

@@ -15,6 +15,7 @@ import {
   Bug,
   Droplets,
   ExternalLink,
+  QrCode,
 } from 'lucide-react';
 import { Household, Person, VhvMember, Village } from '../types';
 import { Skeleton } from './Skeleton';
@@ -30,6 +31,8 @@ interface HouseholdsProps {
   onDeleteHousehold: (id: string) => void;
   onViewHouseholdDetail: (household: Household) => void;
   onOpenMapAtHousehold: (household: Household) => void;
+  onOpenQrScanner: () => void;
+  onShowHouseholdQr: (household: Household) => void;
 }
 
 export const Households: React.FC<HouseholdsProps> = ({
@@ -43,12 +46,46 @@ export const Households: React.FC<HouseholdsProps> = ({
   onDeleteHousehold,
   onViewHouseholdDetail,
   onOpenMapAtHousehold,
+  onOpenQrScanner,
+  onShowHouseholdQr,
 }) => {
   const [isLoading, setIsLoading] = React.useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterLarva, setFilterLarva] = useState<'all' | 'found' | 'clean'>('all');
+  const [filterSanitation, setFilterSanitation] = useState<'all' | 'good' | 'fair' | 'poor'>('all');
+
   React.useEffect(() => {
     const timer = setTimeout(() => setIsLoading(false), 350);
     return () => clearTimeout(timer);
   }, []);
+
+  const filteredHouseholds = useMemo(() => {
+    return households.filter((h) => {
+      // Village filter
+      if (selectedVillageNo !== 0 && h.villageNo !== selectedVillageNo) {
+        return false;
+      }
+
+      // Search term
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase();
+        const matchesNo = h.houseNo.toLowerCase().includes(term);
+        const matchesHead = h.headOfHouseholdName.toLowerCase().includes(term);
+        const matchesVillage = h.villageName.toLowerCase().includes(term);
+        const matchesId = h.id.toLowerCase().includes(term);
+        if (!matchesNo && !matchesHead && !matchesVillage && !matchesId) return false;
+      }
+
+      // Larva filter
+      if (filterLarva === 'found' && !h.mosquitoLarvaFound) return false;
+      if (filterLarva === 'clean' && h.mosquitoLarvaFound) return false;
+
+      // Sanitation filter
+      if (filterSanitation !== 'all' && h.sanitationRating !== filterSanitation) return false;
+
+      return true;
+    });
+  }, [households, selectedVillageNo, searchTerm, filterLarva, filterSanitation]);
 
   if (isLoading) {
     return (
@@ -66,37 +103,6 @@ export const Households: React.FC<HouseholdsProps> = ({
       </div>
     );
   }
-
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterLarva, setFilterLarva] = useState<'all' | 'found' | 'clean'>('all');
-  const [filterSanitation, setFilterSanitation] = useState<'all' | 'good' | 'fair' | 'poor'>('all');
-
-  const filteredHouseholds = useMemo(() => {
-    return households.filter((h) => {
-      // Village filter
-      if (selectedVillageNo !== 0 && h.villageNo !== selectedVillageNo) {
-        return false;
-      }
-
-      // Search term
-      if (searchTerm.trim()) {
-        const term = searchTerm.toLowerCase();
-        const matchesNo = h.houseNo.toLowerCase().includes(term);
-        const matchesHead = h.headOfHouseholdName.toLowerCase().includes(term);
-        const matchesVillage = h.villageName.toLowerCase().includes(term);
-        if (!matchesNo && !matchesHead && !matchesVillage) return false;
-      }
-
-      // Larva filter
-      if (filterLarva === 'found' && !h.mosquitoLarvaFound) return false;
-      if (filterLarva === 'clean' && h.mosquitoLarvaFound) return false;
-
-      // Sanitation filter
-      if (filterSanitation !== 'all' && h.sanitationRating !== filterSanitation) return false;
-
-      return true;
-    });
-  }, [households, selectedVillageNo, searchTerm, filterLarva, filterSanitation]);
 
   const getVhvName = (id: string) => {
     const vhv = vhvMembers.find((v) => v.id === id);
@@ -120,15 +126,27 @@ export const Households: React.FC<HouseholdsProps> = ({
           </p>
         </div>
 
-        <motion.button
-          whileTap={{ scale: 0.96 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 17 }}
-          onClick={onAddHousehold}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm self-start sm:self-auto cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>เพิ่มหลังคาเรือนใหม่</span>
-        </motion.button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+            onClick={onOpenQrScanner}
+            className="flex items-center justify-center gap-2 px-3.5 py-2.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-semibold text-sm transition-colors shadow-xs cursor-pointer"
+          >
+            <QrCode className="w-4 h-4" />
+            <span>สแกน QR</span>
+          </motion.button>
+
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+            onClick={onAddHousehold}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>เพิ่มหลังคาเรือนใหม่</span>
+          </motion.button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -289,6 +307,14 @@ export const Households: React.FC<HouseholdsProps> = ({
                   </button>
 
                   <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onShowHouseholdQr(house)}
+                      title="ดู/พิมพ์ QR Code ประจำหลังคาเรือน"
+                      className="p-1.5 text-emerald-700 hover:text-emerald-800 hover:bg-white rounded-md transition-colors cursor-pointer"
+                    >
+                      <QrCode className="w-4 h-4" />
+                    </button>
                     <button
                       onClick={() => onEditHousehold(house)}
                       title="แก้ไขข้อมูลหลังคาเรือน"

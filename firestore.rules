@@ -1,0 +1,404 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Default-Deny Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Security Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidNumberRange(val, minVal, maxVal) {
+      return (val is int || val is float) && val >= minVal && val <= maxVal;
+    }
+
+    function isOptStr(data, field, maxLen) {
+      return !(field in data) || data[field] == null || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isOptNumRange(data, field, minVal, maxVal) {
+      return !(field in data) || data[field] == null || isValidNumberRange(data[field], minVal, maxVal);
+    }
+
+    function isValidServerTimestampsOnCreate(data) {
+      return data.serverCreatedAt is timestamp &&
+             data.serverCreatedAt <= request.time &&
+             data.serverUpdatedAt is timestamp &&
+             data.serverUpdatedAt <= request.time;
+    }
+
+    function isValidServerTimestampsOnUpdate(data, prev) {
+      return data.serverCreatedAt == prev.serverCreatedAt &&
+             data.serverUpdatedAt is timestamp &&
+             data.serverUpdatedAt <= request.time;
+    }
+
+    // 3. Entity Schema Validation Blueprints
+
+    function isValidUserProfile(data, userId) {
+      return data.uid is string && data.uid == userId &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 150 &&
+             isOptStr(data, 'email', 200) &&
+             isOptStr(data, 'photoURL', 500) &&
+             (!('lastSyncAt' in data) || data.lastSyncAt == null || (data.lastSyncAt is timestamp && data.lastSyncAt <= request.time));
+    }
+
+    function isValidVhvMember(data, memberId) {
+      return data.id is string && data.id == memberId &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 150 &&
+             data.citizenId is string && data.citizenId.size() <= 20 &&
+             data.phone is string && data.phone.size() <= 30 &&
+             data.villageNo is int && data.villageNo >= 0 && data.villageNo <= 999 &&
+             data.zoneName is string && data.zoneName.size() <= 200 &&
+             data.assignedHouseIds is list && data.assignedHouseIds.size() <= 500 &&
+             (data.assignedHouseIds.size() == 0 || data.assignedHouseIds[0] is string) &&
+             data.isActive is bool &&
+             data.registeredDate is string && data.registeredDate.size() <= 40;
+    }
+
+    function isValidHousehold(data, householdId) {
+      return data.id is string && data.id == householdId &&
+             data.houseNo is string && data.houseNo.size() >= 1 && data.houseNo.size() <= 60 &&
+             data.villageNo is int && data.villageNo >= 0 && data.villageNo <= 999 &&
+             data.villageName is string && data.villageName.size() <= 150 &&
+             data.subdistrict is string && data.subdistrict.size() <= 150 &&
+             data.district is string && data.district.size() <= 150 &&
+             data.province is string && data.province.size() <= 150 &&
+             isValidNumberRange(data.latitude, -90.0, 90.0) &&
+             isValidNumberRange(data.longitude, -180.0, 180.0) &&
+             data.headOfHouseholdName is string && data.headOfHouseholdName.size() <= 150 &&
+             data.vhvMemberId is string && data.vhvMemberId.size() <= 128 &&
+             data.sanitationRating in ['good', 'fair', 'poor'] &&
+             data.mosquitoLarvaFound is bool &&
+             data.waterSource is string && data.waterSource.size() <= 150 &&
+             data.wasteManagement is string && data.wasteManagement.size() <= 150 &&
+             isOptStr(data, 'notes', 2000) &&
+             data.createdAt is string && data.createdAt.size() <= 60 &&
+             data.updatedAt is string && data.updatedAt.size() <= 60;
+    }
+
+    function isValidPerson(data, personId) {
+      return data.id is string && data.id == personId &&
+             data.householdId is string && data.householdId.size() >= 1 && data.householdId.size() <= 128 &&
+             data.villageNo is int && data.villageNo >= 0 && data.villageNo <= 999 &&
+             data.citizenId is string && data.citizenId.size() <= 20 &&
+             data.title is string && data.title.size() <= 30 &&
+             data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 100 &&
+             data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 100 &&
+             data.gender in ['male', 'female'] &&
+             data.birthDate is string && data.birthDate.size() <= 40 &&
+             (!('birthDatePrecision' in data) || data.birthDatePrecision == null || data.birthDatePrecision in ['full', 'year']) &&
+             data.bloodGroup in ['A', 'B', 'AB', 'O', 'Rh-', 'Unknown'] &&
+             isOptStr(data, 'phone', 30) &&
+             isOptStr(data, 'occupation', 150) &&
+             data.residentStatus in ['resident', 'moved_out', 'deceased', 'temporary'] &&
+             data.careCategory in ['active', 'homebound', 'bedridden'] &&
+             data.chronicDiseases is list && data.chronicDiseases.size() <= 30 &&
+             (data.chronicDiseases.size() == 0 || data.chronicDiseases[0] is string) &&
+             isOptNumRange(data, 'weightKg', 0.0, 500.0) &&
+             isOptNumRange(data, 'heightCm', 0.0, 300.0) &&
+             isOptNumRange(data, 'bmi', 0.0, 200.0) &&
+             isOptNumRange(data, 'systolic', 0.0, 400.0) &&
+             isOptNumRange(data, 'diastolic', 0.0, 300.0) &&
+             isOptNumRange(data, 'bloodSugarDtx', 0.0, 2000.0) &&
+             data.createdAt is string && data.createdAt.size() <= 60 &&
+             data.updatedAt is string && data.updatedAt.size() <= 60;
+    }
+
+    function isValidHealthScreening(data, screeningId) {
+      return data.id is string && data.id == screeningId &&
+             data.personId is string && data.personId.size() >= 1 && data.personId.size() <= 128 &&
+             data.householdId is string && data.householdId.size() >= 1 && data.householdId.size() <= 128 &&
+             data.villageNo is int && data.villageNo >= 0 && data.villageNo <= 999 &&
+             data.date is string && data.date.size() <= 40 &&
+             data.vhvMemberId is string && data.vhvMemberId.size() <= 128 &&
+             isValidNumberRange(data.weightKg, 0.0, 500.0) &&
+             isValidNumberRange(data.heightCm, 0.0, 300.0) &&
+             isValidNumberRange(data.bmi, 0.0, 200.0) &&
+             isValidNumberRange(data.systolic, 0.0, 400.0) &&
+             isValidNumberRange(data.diastolic, 0.0, 300.0) &&
+             isOptNumRange(data, 'pulse', 0.0, 300.0) &&
+             isOptNumRange(data, 'bloodSugarDtx', 0.0, 2000.0) &&
+             isOptNumRange(data, 'waistCm', 0.0, 300.0) &&
+             data.smoker is bool &&
+             data.alcohol is bool &&
+             isOptStr(data, 'notes', 2000) &&
+             isOptStr(data, 'advice', 2000) &&
+             data.needDoctorReferral is bool &&
+             data.createdAt is string && data.createdAt.size() <= 60;
+    }
+
+    function isValidAppointment(data, appointmentId) {
+      return data.id is string && data.id == appointmentId &&
+             data.personId is string && data.personId.size() >= 1 && data.personId.size() <= 128 &&
+             data.householdId is string && data.householdId.size() >= 1 && data.householdId.size() <= 128 &&
+             data.villageNo is int && data.villageNo >= 0 && data.villageNo <= 999 &&
+             data.vhvMemberId is string && data.vhvMemberId.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.type in ['home_visit', 'vitals_check', 'hospital_visit', 'vaccine', 'larva_survey', 'other'] &&
+             data.date is string && data.date.size() <= 40 &&
+             isOptStr(data, 'time', 20) &&
+             data.location is string && data.location.size() <= 200 &&
+             data.status in ['upcoming', 'completed', 'missed', 'cancelled'] &&
+             isOptStr(data, 'notes', 2000) &&
+             data.createdAt is string && data.createdAt.size() <= 60 &&
+             data.updatedAt is string && data.updatedAt.size() <= 60;
+    }
+
+    function isValidTombstone(data, tombstoneId) {
+      return isValidId(tombstoneId) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+             data.collection in ['households', 'persons', 'screenings', 'vhv_members', 'appointments'] &&
+             data.villageNo is int && data.villageNo >= 0 && data.villageNo <= 999 &&
+             data.deletedAt is string && data.deletedAt.size() <= 60;
+    }
+
+    // 4. User Profile & Owner-Scoped Collections
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll(['uid', 'displayName', 'serverCreatedAt', 'serverUpdatedAt']) &&
+                       incoming().keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'lastSyncAt', 'serverCreatedAt', 'serverUpdatedAt']) &&
+                       isValidUserProfile(incoming(), userId) &&
+                       isValidServerTimestampsOnCreate(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming(), userId) &&
+                       incoming().uid == existing().uid &&
+                       isValidServerTimestampsOnUpdate(incoming(), existing()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoURL', 'lastSyncAt', 'serverUpdatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // Subcollection: VHV Members
+      match /vhv_members/{memberId} {
+        allow get: if isOwner(userId) && isValidId(memberId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(memberId) &&
+                         incoming().keys().hasAll([
+                           'id', 'name', 'citizenId', 'phone', 'villageNo',
+                           'zoneName', 'assignedHouseIds', 'isActive', 'registeredDate',
+                           'serverCreatedAt', 'serverUpdatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'id', 'name', 'citizenId', 'phone', 'villageNo',
+                           'zoneName', 'assignedHouseIds', 'isActive', 'registeredDate',
+                           'serverCreatedAt', 'serverUpdatedAt'
+                         ]) &&
+                         isValidVhvMember(incoming(), memberId) &&
+                         isValidServerTimestampsOnCreate(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(memberId) &&
+                         isValidVhvMember(incoming(), memberId) &&
+                         incoming().id == existing().id &&
+                         isValidServerTimestampsOnUpdate(incoming(), existing()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'name', 'citizenId', 'phone', 'villageNo', 'zoneName',
+                           'assignedHouseIds', 'isActive', 'registeredDate', 'serverUpdatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(memberId);
+      }
+
+      // Subcollection: Households
+      match /households/{householdId} {
+        allow get: if isOwner(userId) && isValidId(householdId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(householdId) &&
+                         incoming().keys().hasAll([
+                           'id', 'houseNo', 'villageNo', 'villageName', 'subdistrict', 'district', 'province',
+                           'latitude', 'longitude', 'headOfHouseholdName', 'vhvMemberId',
+                           'sanitationRating', 'mosquitoLarvaFound', 'waterSource', 'wasteManagement',
+                           'createdAt', 'updatedAt', 'serverCreatedAt', 'serverUpdatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'id', 'houseNo', 'villageNo', 'villageName', 'subdistrict', 'district', 'province',
+                           'latitude', 'longitude', 'headOfHouseholdName', 'vhvMemberId',
+                           'sanitationRating', 'mosquitoLarvaFound', 'waterSource', 'wasteManagement',
+                           'notes', 'createdAt', 'updatedAt', 'serverCreatedAt', 'serverUpdatedAt'
+                         ]) &&
+                         isValidHousehold(incoming(), householdId) &&
+                         isValidServerTimestampsOnCreate(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(householdId) &&
+                         isValidHousehold(incoming(), householdId) &&
+                         incoming().id == existing().id &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidServerTimestampsOnUpdate(incoming(), existing()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'houseNo', 'villageNo', 'villageName', 'subdistrict', 'district', 'province',
+                           'latitude', 'longitude', 'headOfHouseholdName', 'vhvMemberId',
+                           'sanitationRating', 'mosquitoLarvaFound', 'waterSource', 'wasteManagement',
+                           'notes', 'updatedAt', 'serverUpdatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(householdId);
+      }
+
+      // Subcollection: Persons
+      match /persons/{personId} {
+        allow get: if isOwner(userId) && isValidId(personId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(personId) &&
+                         incoming().keys().hasAll([
+                           'id', 'householdId', 'villageNo', 'citizenId', 'title', 'firstName', 'lastName',
+                           'gender', 'birthDate', 'bloodGroup', 'residentStatus', 'careCategory',
+                           'chronicDiseases', 'createdAt', 'updatedAt', 'serverCreatedAt', 'serverUpdatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'id', 'householdId', 'villageNo', 'citizenId', 'title', 'firstName', 'lastName',
+                           'gender', 'birthDate', 'birthDatePrecision', 'bloodGroup', 'phone', 'occupation',
+                           'residentStatus', 'careCategory', 'chronicDiseases',
+                           'weightKg', 'heightCm', 'bmi', 'systolic', 'diastolic', 'bloodSugarDtx',
+                           'createdAt', 'updatedAt', 'serverCreatedAt', 'serverUpdatedAt'
+                         ]) &&
+                         isValidPerson(incoming(), personId) &&
+                         isValidServerTimestampsOnCreate(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(personId) &&
+                         isValidPerson(incoming(), personId) &&
+                         incoming().id == existing().id &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidServerTimestampsOnUpdate(incoming(), existing()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'householdId', 'villageNo', 'citizenId', 'title', 'firstName', 'lastName',
+                           'gender', 'birthDate', 'birthDatePrecision', 'bloodGroup', 'phone', 'occupation',
+                           'residentStatus', 'careCategory', 'chronicDiseases',
+                           'weightKg', 'heightCm', 'bmi', 'systolic', 'diastolic', 'bloodSugarDtx',
+                           'updatedAt', 'serverUpdatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(personId);
+      }
+
+      // Subcollection: Screenings (immutable clinical snapshots)
+      match /screenings/{screeningId} {
+        allow get: if isOwner(userId) && isValidId(screeningId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(screeningId) &&
+                         incoming().keys().hasAll([
+                           'id', 'personId', 'householdId', 'villageNo', 'date', 'vhvMemberId',
+                           'weightKg', 'heightCm', 'bmi', 'systolic', 'diastolic',
+                           'smoker', 'alcohol', 'needDoctorReferral', 'createdAt',
+                           'serverCreatedAt', 'serverUpdatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'id', 'personId', 'householdId', 'villageNo', 'date', 'vhvMemberId',
+                           'weightKg', 'heightCm', 'bmi', 'systolic', 'diastolic',
+                           'pulse', 'bloodSugarDtx', 'waistCm', 'smoker', 'alcohol',
+                           'notes', 'advice', 'needDoctorReferral', 'createdAt',
+                           'serverCreatedAt', 'serverUpdatedAt'
+                         ]) &&
+                         isValidHealthScreening(incoming(), screeningId) &&
+                         isValidServerTimestampsOnCreate(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(screeningId) &&
+                         isValidHealthScreening(incoming(), screeningId) &&
+                         incoming().id == existing().id &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidServerTimestampsOnUpdate(incoming(), existing()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'date', 'vhvMemberId', 'weightKg', 'heightCm', 'bmi', 'systolic', 'diastolic',
+                           'pulse', 'bloodSugarDtx', 'waistCm', 'smoker', 'alcohol',
+                           'notes', 'advice', 'needDoctorReferral', 'serverUpdatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(screeningId);
+      }
+
+      // Subcollection: Appointments (with Terminal State Locking on completed/cancelled)
+      match /appointments/{appointmentId} {
+        allow get: if isOwner(userId) && isValidId(appointmentId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(appointmentId) &&
+                         incoming().keys().hasAll([
+                           'id', 'personId', 'householdId', 'villageNo', 'vhvMemberId',
+                           'title', 'type', 'date', 'location', 'status',
+                           'createdAt', 'updatedAt', 'serverCreatedAt', 'serverUpdatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'id', 'personId', 'householdId', 'villageNo', 'vhvMemberId',
+                           'title', 'type', 'date', 'time', 'location', 'status', 'notes',
+                           'createdAt', 'updatedAt', 'serverCreatedAt', 'serverUpdatedAt'
+                         ]) &&
+                         isValidAppointment(incoming(), appointmentId) &&
+                         isValidServerTimestampsOnCreate(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(appointmentId) &&
+                         isValidAppointment(incoming(), appointmentId) &&
+                         incoming().id == existing().id &&
+                         incoming().createdAt == existing().createdAt &&
+                         !(existing().status in ['completed', 'cancelled']) &&
+                         isValidServerTimestampsOnUpdate(incoming(), existing()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'title', 'type', 'date', 'time', 'location', 'status', 'notes',
+                           'updatedAt', 'serverUpdatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(appointmentId);
+      }
+
+      // Subcollection: Deletion Tombstones
+      match /tombstones/{tombstoneId} {
+        allow get: if isOwner(userId) && isValidId(tombstoneId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(tombstoneId) &&
+                         incoming().keys().hasAll([
+                           'id', 'collection', 'villageNo', 'deletedAt',
+                           'serverCreatedAt', 'serverUpdatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'id', 'collection', 'villageNo', 'deletedAt',
+                           'serverCreatedAt', 'serverUpdatedAt'
+                         ]) &&
+                         isValidTombstone(incoming(), tombstoneId) &&
+                         isValidServerTimestampsOnCreate(incoming());
+
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(tombstoneId);
+      }
+    }
+  }
+}

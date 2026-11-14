@@ -14,6 +14,7 @@ import {
   Activity,
   CheckCircle2,
   Calendar,
+  QrCode,
 } from 'lucide-react';
 import { Person, Household, Village } from '../types';
 import { calculateAge, formatThaiCitizenId } from '../utils/thaiId';
@@ -29,6 +30,8 @@ interface PersonsProps {
   onDeletePerson: (id: string) => void;
   onOpenScreening: (person: Person) => void;
   onOpenAppointments: (person: Person) => void;
+  onOpenQrScanner: () => void;
+  onShowPersonQr: (person: Person, household?: Household) => void;
 }
 
 export const Persons: React.FC<PersonsProps> = ({
@@ -41,6 +44,8 @@ export const Persons: React.FC<PersonsProps> = ({
   onDeletePerson,
   onOpenScreening,
   onOpenAppointments,
+  onOpenQrScanner,
+  onShowPersonQr,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [careFilter, setCareFilter] = useState<'all' | 'active' | 'homebound' | 'bedridden'>('all');
@@ -103,15 +108,27 @@ export const Persons: React.FC<PersonsProps> = ({
           </p>
         </div>
 
-        <motion.button
-          whileTap={{ scale: 0.96 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 17 }}
-          onClick={onAddPerson}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm self-start sm:self-auto cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>ลงทะเบียนประชากรใหม่</span>
-        </motion.button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+            onClick={onOpenQrScanner}
+            className="flex items-center justify-center gap-2 px-3.5 py-2.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-semibold text-sm transition-colors shadow-xs cursor-pointer"
+          >
+            <QrCode className="w-4 h-4" />
+            <span>สแกน QR</span>
+          </motion.button>
+
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+            onClick={onAddPerson}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>ลงทะเบียนประชากรใหม่</span>
+          </motion.button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -323,6 +340,14 @@ export const Persons: React.FC<PersonsProps> = ({
                       {/* Actions */}
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <motion.button
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => onShowPersonQr(person, house)}
+                            className="p-1.5 text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                            title="ดู/พิมพ์บัตร QR ประจำตัวประชากร"
+                          >
+                            <QrCode className="w-4 h-4" />
+                          </motion.button>
                           <motion.button
                             whileTap={{ scale: 0.9 }}
                             onClick={() => onOpenAppointments(person)}

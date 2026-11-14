@@ -151,6 +151,7 @@ class StorageService {
       'INSERT OR REPLACE INTO vhv_members (id, name, citizenId, phone, villageNo, zoneName, assignedHouseIds, isActive, registeredDate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [member.id, member.name, member.citizenId, member.phone, member.villageNo, member.zoneName, JSON.stringify(member.assignedHouseIds), member.isActive ? 1 : 0, member.registeredDate]
     );
+    await this.queueSync('save', 'vhv_members', member);
     await this.log('update', 'vhv_members', `แก้ไขข้อมูล อสม. ${member.name}`);
     await dbService.saveToWebStore();
   }
@@ -495,31 +496,90 @@ class StorageService {
 
   async clearSyncQueue() {
     await dbService.execute('DELETE FROM sync_queue;');
+    await dbService.saveToWebStore();
+  }
+
+  // --- Cloud Pull Helpers (do NOT re-queue to sync_queue or overwrite updatedAt) ---
+  async upsertVhvFromCloud(member: VhvMember): Promise<void> {
+    await dbService.run(
+      'INSERT OR REPLACE INTO vhv_members (id, name, citizenId, phone, villageNo, zoneName, assignedHouseIds, isActive, registeredDate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [member.id, member.name, member.citizenId, member.phone, member.villageNo, member.zoneName, JSON.stringify(member.assignedHouseIds || []), member.isActive ? 1 : 0, member.registeredDate]
+    );
+    await dbService.saveToWebStore();
+  }
+
+  async upsertHouseholdFromCloud(h: Household): Promise<void> {
+    await dbService.run(
+      'INSERT OR REPLACE INTO households (id, houseNo, villageNo, villageName, subdistrict, district, province, latitude, longitude, headOfHouseholdName, vhvMemberId, sanitationRating, mosquitoLarvaFound, waterSource, wasteManagement, notes, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [h.id, h.houseNo, h.villageNo, h.villageName, h.subdistrict, h.district, h.province, h.latitude, h.longitude, h.headOfHouseholdName, h.vhvMemberId, h.sanitationRating, h.mosquitoLarvaFound ? 1 : 0, h.waterSource, h.wasteManagement, h.notes ?? null, h.createdAt, h.updatedAt]
+    );
+    await dbService.saveToWebStore();
+  }
+
+  async upsertPersonFromCloud(p: Person): Promise<void> {
+    await dbService.run(
+      'INSERT OR REPLACE INTO persons (id, householdId, villageNo, citizenId, title, firstName, lastName, gender, birthDate, birthDatePrecision, bloodGroup, phone, occupation, residentStatus, careCategory, chronicDiseases, weightKg, heightCm, bmi, systolic, diastolic, bloodSugarDtx, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [p.id, p.householdId, p.villageNo, p.citizenId, p.title, p.firstName, p.lastName, p.gender, p.birthDate, p.birthDatePrecision ?? null, p.bloodGroup, p.phone ?? null, p.occupation ?? null, p.residentStatus, p.careCategory, JSON.stringify(p.chronicDiseases || []), p.weightKg ?? null, p.heightCm ?? null, p.bmi ?? null, p.systolic ?? null, p.diastolic ?? null, p.bloodSugarDtx ?? null, p.createdAt, p.updatedAt]
+    );
+    await dbService.saveToWebStore();
+  }
+
+  async upsertScreeningFromCloud(s: HealthScreening): Promise<void> {
+    await dbService.run(
+      'INSERT OR REPLACE INTO screenings (id, personId, householdId, villageNo, date, vhvMemberId, weightKg, heightCm, bmi, systolic, diastolic, pulse, bloodSugarDtx, waistCm, smoker, alcohol, notes, advice, needDoctorReferral, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [s.id, s.personId, s.householdId, s.villageNo, s.date, s.vhvMemberId, s.weightKg, s.heightCm, s.bmi, s.systolic, s.diastolic, s.pulse ?? null, s.bloodSugarDtx ?? null, s.waistCm ?? null, s.smoker ? 1 : 0, s.alcohol ? 1 : 0, s.notes ?? null, s.advice ?? null, s.needDoctorReferral ? 1 : 0, s.createdAt]
+    );
+    await dbService.saveToWebStore();
+  }
+
+  async upsertAppointmentFromCloud(a: Appointment): Promise<void> {
+    await dbService.run(
+      'INSERT OR REPLACE INTO appointments (id, personId, householdId, villageNo, vhvMemberId, title, type, date, time, location, status, notes, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [a.id, a.personId, a.householdId, a.villageNo, a.vhvMemberId, a.title, a.type, a.date, a.time ?? null, a.location, a.status, a.notes ?? null, a.createdAt, a.updatedAt]
+    );
+    await dbService.saveToWebStore();
+  }
+
+  async applyCloudDeletion(collection: Tombstone['collection'], id: string, villageNo: number, deletedAt: string): Promise<void> {
+    const validTables: Record<Tombstone['collection'], string> = {
+      households: 'households',
+      persons: 'persons',
+      screenings: 'screenings',
+      vhv_members: 'vhv_members',
+      appointments: 'appointments',
+    };
+    const table = validTables[collection];
+    if (!table) return;
+    await dbService.run(`DELETE FROM ${table} WHERE id = ?`, [id]);
+    await dbService.run(
+      'INSERT OR REPLACE INTO tombstones (id, collection, villageNo, deletedAt) VALUES (?, ?, ?, ?)',
+      [id, collection, villageNo, deletedAt]
+    );
+    await dbService.saveToWebStore();
   }
 
   async processBackgroundSync(): Promise<{ successCount: number; conflictCount: number }> {
-    const queue = await this.getSyncQueue();
-    if (queue.length === 0) return { successCount: 0, conflictCount: 0 };
-
-    let successCount = 0;
-    let conflictCount = 0;
-
-    for (const item of queue) {
-      // Simulate background cloud sync
-      if (Math.random() < 0.03) {
-        conflictCount++;
-      } else {
-        successCount++;
-        await dbService.run('DELETE FROM sync_queue WHERE id = ?', [item.id]);
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return { successCount: 0, conflictCount: 0 };
+    }
+    try {
+      const [{ getFirebaseAuth }, { syncWithFirestore }] = await Promise.all([
+        import('./firebase'),
+        import('./cloudSync'),
+      ]);
+      const user = getFirebaseAuth().currentUser;
+      if (!user) {
+        return { successCount: 0, conflictCount: 0 };
       }
+      const res = await syncWithFirestore(user);
+      return {
+        successCount: res.pushedCount + res.pulledCount + res.deletedCount,
+        conflictCount: res.conflicts.length,
+      };
+    } catch (err) {
+      console.warn('Background Firestore sync deferred:', err);
+      return { successCount: 0, conflictCount: 0 };
     }
-
-    if (successCount > 0) {
-      await this.log('sync', 'system', `ซิงค์ข้อมูลเบื้องหลังสำเร็จ ${successCount} รายการ`);
-      await dbService.saveToWebStore();
-    }
-
-    return { successCount, conflictCount };
   }
 
   async resetToDefault() {
