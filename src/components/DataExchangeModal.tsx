@@ -108,6 +108,20 @@ export const DataExchangeModal: React.FC<DataExchangeModalProps> = ({
     const wsScreenings = XLSX.utils.json_to_sheet(screeningRows);
     XLSX.utils.book_append_sheet(wb, wsScreenings, 'ผลการคัดกรองสุขภาพ');
 
+    // VHV Directory sheet
+    const vhvRows = vhvMembers.map((v) => ({
+      รหัส_อสม: v.id,
+      ชื่อ_สกุล: v.name,
+      เลขบัตรประชาชน: v.citizenId,
+      เบอร์โทร: v.phone,
+      หมู่ที่: v.villageNo,
+      เขตรับผิดชอบ: v.zoneName,
+      สถานะ: v.isActive ? 'ปฏิบัติการ' : 'พักงาน',
+      วันที่ขึ้นทะเบียน: v.registeredDate,
+    }));
+    const wsVhvs = XLSX.utils.json_to_sheet(vhvRows);
+    XLSX.utils.book_append_sheet(wb, wsVhvs, 'ทำเนียบ_อสม');
+
     XLSX.writeFile(
       wb,
       `ข้อมูล_Smart_OSM_Next_${new Date().toISOString().split('T')[0]}.xlsx`
@@ -174,10 +188,17 @@ export const DataExchangeModal: React.FC<DataExchangeModalProps> = ({
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
 
     const reader = new FileReader();
+    reader.onerror = () => {
+      setImportStatus({
+        success: false,
+        message: 'ไม่สามารถอ่านไฟล์จากอุปกรณ์ได้ กรุณาลองใหม่อีกครั้ง',
+      });
+    };
 
-    if (file.name.endsWith('.json')) {
+    if (file.name.toLowerCase().endsWith('.json')) {
       reader.onload = async (event) => {
         try {
           const content = JSON.parse(event.target?.result as string);
@@ -207,21 +228,22 @@ export const DataExchangeModal: React.FC<DataExchangeModalProps> = ({
 
           let importedCount = 0;
           const currentHouses = await storage.getHouseholds();
+          const batchTs = Date.now();
 
           for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
             const citizenId = String(row['เลขประจำตัวประชาชน'] || '').replace(/\D/g, '');
-            const firstName = row['ชื่อ'] || row['firstname'];
-            const lastName = row['นามสกุล'] || row['lastname'];
+            const firstName = String(row['ชื่อ'] || row['firstname'] || '').trim();
+            const lastName = String(row['นามสกุล'] || row['lastname'] || '').trim();
 
             if (firstName && lastName) {
-              const houseNo = String(row['บ้านเลขที่'] || '1');
-              const villageNo = Number(row['หมู่ที่'] || 1);
+              const houseNo = String(row['บ้านเลขที่'] || '1').trim();
+              const villageNo = Number(row['หมู่ที่'] || 1) || 1;
 
               let house = currentHouses.find((h) => h.houseNo === houseNo && h.villageNo === villageNo);
               if (!house) {
                 house = {
-                  id: `house-imp-${Date.now()}-${i}`,
+                  id: `house-imp-${batchTs}-${i}`,
                   houseNo,
                   villageNo,
                   villageName: `หมู่ที่ ${villageNo}`,
@@ -244,7 +266,7 @@ export const DataExchangeModal: React.FC<DataExchangeModalProps> = ({
               }
 
               const newPerson: Person = {
-                id: `person-imp-${Date.now()}-${i}`,
+                id: `person-imp-${batchTs}-${i}`,
                 householdId: house.id,
                 villageNo,
                 citizenId: citizenId || `3501200${Math.floor(100000 + Math.random() * 900000)}`,
@@ -259,7 +281,7 @@ export const DataExchangeModal: React.FC<DataExchangeModalProps> = ({
                 residentStatus: 'resident',
                 careCategory: (row['ภาวะพึ่งพิง'] as any) || 'active',
                 chronicDiseases: row['โรคประจำตัว']
-                  ? String(row['โรคประจำตัว']).split(',').map((s) => s.trim())
+                  ? String(row['โรคประจำตัว']).split(',').map((s) => s.trim()).filter(Boolean)
                   : [],
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),

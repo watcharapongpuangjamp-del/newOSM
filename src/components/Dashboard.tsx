@@ -22,7 +22,7 @@ import {
   QrCode,
 } from 'lucide-react';
 import { Household, Person, HealthScreening, Village, Appointment, VhvMember } from '../types';
-import { calculateAge, formatThaiDate } from '../utils/thaiId';
+import { calculateAge, formatThaiDate, parseLocalDate } from '../utils/thaiId';
 import { CARE_CATEGORY_CONFIG, evaluateBloodPressure } from '../utils/health';
 import { APPOINTMENT_TYPE_CONFIG } from './PersonalAppointmentModal';
 import { Skeleton } from './Skeleton';
@@ -40,6 +40,7 @@ interface DashboardProps {
   onOpenAddPerson: () => void;
   onOpenScreening: (person: Person) => void;
   onOpenAppointments?: (person: Person) => void;
+  onOpenMapAtHousehold?: (household: Household) => void;
   onOpenQrScanner: () => void;
 }
 
@@ -56,6 +57,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onOpenAddPerson,
   onOpenScreening,
   onOpenAppointments,
+  onOpenMapAtHousehold,
   onOpenQrScanner,
 }) => {
   const [isLoading, setIsLoading] = React.useState(true);
@@ -143,7 +145,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   today.setHours(0, 0, 0, 0);
 
   const getRelativeDayInfo = (dateStr: string) => {
-    const target = new Date(dateStr);
+    const target = parseLocalDate(dateStr);
     target.setHours(0, 0, 0, 0);
     const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     if (diffDays === 0) return { label: 'วันนี้', badgeClass: 'bg-rose-100 text-rose-700 border-rose-300 font-bold animate-pulse' };
@@ -156,7 +158,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     .filter((a) => {
       if (a.status !== 'upcoming') return false;
       if (selectedVillageNo !== 0 && a.villageNo !== selectedVillageNo) return false;
-      const target = new Date(a.date);
+      const target = parseLocalDate(a.date);
       target.setHours(0, 0, 0, 0);
       const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       return diffDays >= -2 && diffDays <= 7;
@@ -731,7 +733,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       <span>บันทึกคัดกรอง</span>
                     </button>
                     <button
-                      onClick={() => onNavigateTab('map')}
+                      onClick={() => {
+                        if (house && onOpenMapAtHousehold) {
+                          onOpenMapAtHousehold(house);
+                        } else {
+                          onNavigateTab('map');
+                        }
+                      }}
                       className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
                       title="ดูตำแหน่งบนแผนที่"
                     >

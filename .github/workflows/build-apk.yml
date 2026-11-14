@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: 'Build Type (debug หรือ release)'
+        description: 'Build Type (both, debug หรือ release)'
         required: true
         default: 'both'
         type: choice
@@ -54,9 +54,14 @@ jobs:
       - name: 📦 Setup Android SDK & Accept Licenses
         run: |
           echo "Accepting Android SDK licenses..."
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
-          echo "Installing Android platform 34, 35, 36..."
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "platforms;android-35" "platforms;android-36" "build-tools;34.0.0" "build-tools;35.0.0" 2>/dev/null || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null 2>&1 || true
+          echo "Installing Android SDK platforms & build-tools (including 36.0.0)..."
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "platforms;android-36" \
+            "build-tools;35.0.0" \
+            "build-tools;36.0.0"
 
       - name: 🟢 Set up Node.js
         uses: actions/setup-node@v4
@@ -64,59 +69,49 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: 📦 Install Node Dependencies & Build Web Bundle
+      - name: 📦 Install Node Dependencies, Typecheck & Build Web Bundle
         run: |
-          echo "Installing dependencies..."
-          npm install --include=dev --no-audit --prefer-offline || npm install --include=dev
-          
-          echo "Ensuring Capacitor CLI and Android platform are ready..."
-          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest --no-audit || true
-          
+          echo "Installing Node dependencies (pinned Capacitor 8 versions)..."
+          if [ -f package-lock.json ]; then
+            npm ci --include=dev --no-audit
+          else
+            npm install --include=dev --no-audit
+          fi
+
+          echo "Running TypeScript check..."
+          npm run lint
+
           echo "Building Vite web bundle..."
           npm run build
-          
+
           echo "Verifying web bundle in dist/..."
           ls -la dist/
 
-      - name: 📱 Prepare & Sync Capacitor Android
+      - name: 📱 Sync Capacitor Android
         run: |
-          # 1. ตรวจสอบการมีอยู่ของ capacitor.config.json
           if [ ! -f "capacitor.config.json" ]; then
-            echo "Generating capacitor.config.json..."
             echo '{"appId": "th.in.smartosm.app", "appName": "Smart OSM Next", "webDir": "dist"}' > capacitor.config.json
           fi
 
-          # 2. ถ้ามีโฟลเดอร์ android อยู่แล้ว (จากการ commit หรือ checkout) ให้ใช้ cap sync ทันที
-          if [ -d "android" ] && [ -f "android/build.gradle" ]; then
-            echo "Android platform already exists in repository. Skipping cap add."
-          else
+          if [ ! -d "android" ] || [ ! -f "android/build.gradle" ]; then
             echo "Scaffolding Capacitor Android platform..."
-            npx cap add android --no-interactive || ./node_modules/.bin/cap add android --no-interactive || true
+            npx cap add android --no-interactive
           fi
 
-          # 3. กำหนดสิทธิ์ permission โฟลเดอร์ android อย่างสมบูรณ์
-          echo "Setting full permissions on android directory..."
-          chmod -R 777 android || chmod -R u+rwX,go+rX android || true
+          if [ ! -f "android/app/google-services.json" ] && [ -f "app/google-services.json" ]; then
+            echo "Copying app/google-services.json to android/app/google-services.json..."
+            cp app/google-services.json android/app/google-services.json
+          fi
 
-          # 4. ทำการ sync assets และ plugins เข้าสู่ android ผ่าน Capacitor CLI
-          echo "Syncing web assets to Capacitor Android..."
-          npx cap sync android || ./node_modules/.bin/cap sync android || true
+          echo "Syncing web assets and plugins to Capacitor Android..."
+          npx cap sync android
 
-          # 5. กำหนดสิทธิ์ execute ให้กับ Gradle wrapper ทันที
           if [ -f "android/gradlew" ]; then
             chmod +x android/gradlew
-            echo "✓ android/gradlew marked executable"
           fi
 
-          # 6. ตรวจสอบความสมบูรณ์ของ web assets ใน android
-          mkdir -p android/app/src/main/assets/public
-          if [ -z "$(ls -A android/app/src/main/assets/public 2>/dev/null)" ]; then
-            echo "Fallback: copy dist assets to android/app/src/main/assets/public..."
-            cp -r dist/* android/app/src/main/assets/public/
-          fi
-
-          echo "✓ Android platform prepared successfully:"
-          ls -la android/
+          echo "✓ Capacitor Android synced successfully"
+          ls -la android/app/src/main/assets/public/
 
       - name: 🐘 Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -126,9 +121,8 @@ jobs:
 
       - name: 🔐 Setup Signing Keystore for Release
         run: |
-          mkdir -p android/app/keystores
-          KEYSTORE_PATH="$GITHUB_WORKSPACE/android/app/keystores/release.keystore"
-          
+          KEYSTORE_PATH="$RUNNER_TEMP/smartosm-release.keystore"
+
           if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
             echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_PATH"
             echo "KEYSTORE_FILE=$KEYSTORE_PATH" >> $GITHUB_ENV
@@ -137,7 +131,7 @@ jobs:
             echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
             echo "✓ Using release keystore from GitHub Secrets"
           else
-            echo "Generating automated signing keystore for CI..."
+            echo "Generating ephemeral CI signing keystore for Release APK..."
             keytool -genkey -v -keystore "$KEYSTORE_PATH" \
               -keyalg RSA -keysize 2048 \
               -validity 10000 -alias smartosm \
@@ -147,34 +141,29 @@ jobs:
             echo "KEYSTORE_PASSWORD=smartosm123" >> $GITHUB_ENV
             echo "KEY_ALIAS=smartosm" >> $GITHUB_ENV
             echo "KEY_PASSWORD=smartosm123" >> $GITHUB_ENV
-            echo "✓ Generated self-signed keystore for CI release build"
+            echo "✓ Generated self-signed CI keystore"
           fi
 
       - name: 🔨 Build Android APK
         working-directory: android
         run: |
           chmod +x gradlew
-          BUILD_CHOICE="${{ github.event.inputs.build_type || 'both' }}"
+          BUILD_CHOICE="${{ inputs.build_type || 'both' }}"
           echo "Building Android APKs (Choice: $BUILD_CHOICE)..."
-          
-          # 1. Build Debug APK (ติดตั้งได้ทันที)
+
           if [ "$BUILD_CHOICE" = "both" ] || [ "$BUILD_CHOICE" = "debug" ]; then
             echo "Compiling Debug APK with Gradle..."
             ./gradlew assembleDebug --stacktrace --no-daemon
           fi
-          
-          # 2. Build Release APK (ลงนามด้วย Keystore)
+
           if [ "$BUILD_CHOICE" = "both" ] || [ "$BUILD_CHOICE" = "release" ]; then
-            echo "Compiling Release APK with Gradle..."
+            echo "Compiling signed Release APK with Gradle..."
             ./gradlew assembleRelease \
               -Pandroid.injected.signing.store.file="$KEYSTORE_FILE" \
               -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
               -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
               -Pandroid.injected.signing.key.password="$KEY_PASSWORD" \
-              --stacktrace --no-daemon || {
-                echo "Release build with injected signing encountered an issue, compiling assembleDebug as fallback..."
-                ./gradlew assembleDebug --stacktrace --no-daemon
-              }
+              --stacktrace --no-daemon
           fi
 
       - name: 📂 Collect & Rename APK Files
@@ -183,26 +172,30 @@ jobs:
           mkdir -p output-apks
           DATE_STR=$(date +'%Y%m%d')
           SHA_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo "latest")
-          
-          # ค้นหาไฟล์ APK ทั้งหมดใน android/
-          find android/ -name "*.apk" 2>/dev/null | sort -u | while read -r file; do
+
+          find android/app/build/outputs/apk -type f -name "*.apk" ! -name "*-unsigned.apk" 2>/dev/null | sort -u | while read -r file; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
               echo "Found APK: $file"
-              
-              if [[ "$file" == *"release"* ]]; then
+
+              if [[ "$filename" == *"release"* ]]; then
                 NEW_NAME="Smart_OSM_Next-v${DATE_STR}-${SHA_SHORT}-release.apk"
-              elif [[ "$file" == *"debug"* ]]; then
+              elif [[ "$filename" == *"debug"* ]]; then
                 NEW_NAME="Smart_OSM_Next-v${DATE_STR}-${SHA_SHORT}-debug.apk"
               else
                 NEW_NAME="Smart_OSM_Next-${filename}"
               fi
-              
+
               cp "$file" "output-apks/$NEW_NAME"
               echo "✓ Copied to: output-apks/$NEW_NAME"
             fi
           done
-          
+
+          if [ -z "$(ls -A output-apks/*.apk 2>/dev/null)" ]; then
+            echo "❌ Error: No signed APK files found in android/app/build/outputs/apk"
+            exit 1
+          fi
+
           echo "=== Summary of output APKs ==="
           ls -lh output-apks/
 
@@ -215,7 +208,7 @@ jobs:
           if-no-files-found: error
 
       - name: 🚀 Publish GitHub Release with APK
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.create_release == true || inputs.create_release == 'true'))
         uses: softprops/action-gh-release@v2
         with:
           files: output-apks/*.apk
@@ -225,24 +218,22 @@ jobs:
           prerelease: false
           body: |
             ### 📱 Smart OSM Next - Android APK Package
-            
-            ระบบ Smart OSM สำหรับจัดการข้อมูล อสม. ครัวเรือน และประชากร พร้อมแผนที่สุขภาพชุมชน
-            
+
+            ระบบ Smart OSM สำหรับจัดการข้อมูล อสม. ครัวเรือน และประชากร พร้อมสแกน QR Code, แผนที่สุขภาพชุมชน GIS, และ AI ผู้ช่วย อสม.
+
             - **Commit SHA**: `${{ github.sha }}`
             - **Branch/Tag**: `${{ github.ref_name }}`
             - **วันที่สร้าง**: $(date +'%Y-%m-%d %H:%M:%S UTC')
-            
+
             #### 📥 ดาวน์โหลดไฟล์ติดตั้ง:
             - ดาวน์โหลดไฟล์ `.apk` จากรายการ Assets ด้านล่างนี้เพื่อนำไปติดตั้งบนโทรศัพท์หรือแท็บเล็ต Android ได้ทันที
-            
-            *สร้างโดยระบบอัตโนมัติ GitHub Actions*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📊 Job Summary
         if: always()
         run: |
-          echo "### 📱 ผลการ Build APK สำเร็จ! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "### 📱 ผลการ Build APK" >> $GITHUB_STEP_SUMMARY
           echo "- **Event**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Ref**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY

@@ -30,6 +30,15 @@
   - รวบรวมสถิติรายเดือนอัตโนมัติสำหรับส่ง รพ.สต.
   - รองรับการพิมพ์รายงานและส่งออกเป็นไฟล์ Excel
 
+- **สแกนและสร้าง QR Code ระบุตัวตน**:
+  - สแกน QR Code ด้วยกล้องอุปกรณ์หรืออัปโหลดรูปภาพ QR เพื่อค้นหาหลังคาเรือน/ประชากรทันที
+  - สร้างและพิมพ์บัตร QR Code สำหรับป้ายหน้าบ้านและบัตรประจำตัวประชากร
+
+- **ฐานข้อมูลออฟไลน์ SQLite + ซิงค์ Firebase Cloud Firestore & AI ผู้ช่วย อสม.**:
+  - จัดเก็บข้อมูลในเครื่องแบบ Offline-First ด้วย SQLite (`@capacitor-community/sqlite` / `jeep-sqlite`)
+  - เชื่อมต่อบัญชี Google เพื่อสำรอง/ซิงค์ข้อมูลสองทางกับ Cloud Firestore พร้อมตรวจสอบความขัดแย้ง (Conflict Diff)
+  - ถาม-ตอบแนวทางดูแลผู้ป่วยและเกณฑ์คัดกรองด้วย Gemini ผ่าน Firebase AI Logic (`gemini-3.8-flash`)
+
 - **นำเข้าและส่งออกข้อมูล (Excel / CSV / JSON)**:
   - ส่งออกข้อมูลเป็นไฟล์ Excel (.xlsx) และสำรองข้อมูล JSON
   - มีแม่แบบ Excel Template สำหรับนำเข้าข้อมูลประชากรพร้อมใช้งาน
@@ -60,22 +69,23 @@
 - `STORE_PASSWORD`: รหัสผ่าน Store
 - `KEY_ALIAS`: ชื่อ Alias ของ Key
 - `KEY_PASSWORD`: รหัสผ่าน Key
-*(หากไม่ได้ตั้งค่าไว้ Workflow จะสร้าง Fallback Signing Key สำหรับติดตั้งและทดสอบให้โดยอัตโนมัติ)*
+*(หากไม่ได้ตั้งค่าไว้ Workflow จะสร้าง Keystore ชั่วคราวสำหรับลงนาม APK ทดสอบให้โดยอัตโนมัติ)*
 
 ---
 
-## 💻 การรันบนเครื่อง Local (Web Development)
+## 💻 การรันบนเครื่อง Local (Web & Android Build)
 
 ```bash
 # ติดตั้ง dependencies
 npm install
 
-# เริ่มต้น dev server
-npm run dev
-
-# ตรวจสอบ TypeScript & Lint
+# ตรวจสอบ TypeScript
 npm run lint
 
 # Build สำหรับ Production Web
 npm run build
+
+# ซิงค์เข้าโปรเจกต์ Capacitor Android และ Build APK
+npx cap sync android
+cd android && ./gradlew assembleDebug
 ```

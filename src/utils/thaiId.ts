@@ -44,9 +44,22 @@ export function formatThaiCitizenId(id: string): string {
   return parts.join('-');
 }
 
+export function parseLocalDate(dateStr: string): Date {
+  if (!dateStr) return new Date(NaN);
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1]);
+    const month = Number(dateOnlyMatch[2]) - 1;
+    const day = Number(dateOnlyMatch[3]);
+    return new Date(year, month, day);
+  }
+  return new Date(dateStr);
+}
+
 export function calculateAge(birthDateStr: string): number {
   if (!birthDateStr) return 0;
-  const birthDate = new Date(birthDateStr);
+  const birthDate = parseLocalDate(birthDateStr);
+  if (Number.isNaN(birthDate.getTime())) return 0;
   const today = new Date();
   let age = today.getFullYear() - birthDate.getFullYear();
   const m = today.getMonth() - birthDate.getMonth();
@@ -59,7 +72,8 @@ export function calculateAge(birthDateStr: string): number {
 export function formatThaiDate(dateStr: string): string {
   if (!dateStr) return '-';
   try {
-    const d = new Date(dateStr);
+    const d = parseLocalDate(dateStr);
+    if (Number.isNaN(d.getTime())) return dateStr;
     const thaiMonths = [
       'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
       'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'

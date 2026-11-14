@@ -12,6 +12,7 @@ import {
 import { getFirestore, type Firestore } from 'firebase/firestore';
 import { getAI, getGenerativeModel, GoogleAIBackend, type AI } from 'firebase/ai';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
+import { Capacitor } from '@capacitor/core';
 import firebaseAppletConfig from '../../firebase-applet-config.json';
 
 const firebaseConfig = {
@@ -89,7 +90,21 @@ export async function signInWithGoogleAccount(): Promise<User | null> {
     const result = await signInWithPopup(auth, provider);
     return result.user;
   } catch (err: any) {
-    if (err?.code === 'auth/popup-blocked') {
+    const code = err?.code || '';
+    const message = String(err?.message || '');
+
+    if (
+      Capacitor.isNativePlatform() &&
+      (code === 'auth/operation-not-supported-in-this-environment' ||
+        code === 'auth/popup-blocked' ||
+        message.includes('disallowed_useragent'))
+    ) {
+      throw new Error(
+        'WebView ในแอป Android ไม่รองรับ Google Sign-In แบบ Popup โดยตรง (นโยบายความปลอดภัยของ Google) — คุณยังสามารถใช้งาน SQLite ออฟไลน์, ส่งออกไฟล์, และใช้ AI ผู้ช่วยได้เต็มรูปแบบ หรือเปิดเวอร์ชันเว็บ PWA เพื่อซิงค์ Cloud Firestore'
+      );
+    }
+
+    if (code === 'auth/popup-blocked') {
       await signInWithRedirect(auth, provider);
       return null;
     }

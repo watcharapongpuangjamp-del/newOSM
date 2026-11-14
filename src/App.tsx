@@ -330,6 +330,7 @@ export const App: React.FC = () => {
             onOpenAddPerson={() => handleOpenAddPerson()}
             onOpenScreening={handleOpenScreening}
             onOpenAppointments={handleOpenAppointments}
+            onOpenMapAtHousehold={handleOpenMapAtHousehold}
             onOpenQrScanner={() => setIsQrScannerOpen(true)}
           />
         )}

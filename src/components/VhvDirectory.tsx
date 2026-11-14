@@ -34,7 +34,8 @@ export const VhvDirectory: React.FC<VhvDirectoryProps> = ({
   selectedVillageNo,
 }) => {
   const [activeTab, setActiveTab] = useState<'report' | 'directory'>('report');
-  const [reportMonth, setReportMonth] = useState('2026-10');
+  const [reportMonth, setReportMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [includeAllMonths, setIncludeAllMonths] = useState(false);
 
   // Filtered lists
   const displayVhvs = vhvMembers.filter(
@@ -51,8 +52,15 @@ export const VhvDirectory: React.FC<VhvDirectoryProps> = ({
 
   const displayScreenings = screenings.filter((s) => {
     if (selectedVillageNo !== 0 && s.villageNo !== selectedVillageNo) return false;
+    if (includeAllMonths) return true;
     return s.date.startsWith(reportMonth);
   });
+
+  const activeVillage = villages.find((v) => v.no === selectedVillageNo) || villages[0];
+  const areaSubtitle = activeVillage
+    ? `${activeVillage.subdistrict} ${activeVillage.district} จังหวัด${activeVillage.province}`
+    : 'พื้นที่รับผิดชอบระดับปฐมภูมิ';
+  const periodLabel = includeAllMonths ? 'ทุกเดือน (สะสมทั้งหมด)' : reportMonth;
 
   // Monthly stats calculations
   const totalHouses = displayHouses.length;
@@ -70,7 +78,7 @@ export const VhvDirectory: React.FC<VhvDirectoryProps> = ({
   const handleExportReportExcel = () => {
     const rows = [
       ['รายงานผลการปฏิบัติงาน อสม. ประจำเดือน (แบบ อสม. 1 / Smart OSM)'],
-      ['ประจำเดือน', reportMonth, 'พื้นที่', selectedVillageNo === 0 ? 'ทุกหมู่บ้าน' : `หมู่ ${selectedVillageNo}`],
+      ['ประจำเดือน', periodLabel, 'พื้นที่', selectedVillageNo === 0 ? 'ทุกหมู่บ้าน' : `หมู่ ${selectedVillageNo}`],
       ['วันที่พิมพ์รายงาน', new Date().toLocaleDateString('th-TH')],
       [''],
       ['หมวดที่ 1: ข้อมูลประชากรและครัวเรือน'],
@@ -93,7 +101,7 @@ export const VhvDirectory: React.FC<VhvDirectoryProps> = ({
     const ws = XLSX.utils.aoa_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'รายงาน_อสม_ประจำเดือน');
-    XLSX.writeFile(wb, `รายงานผลงาน_อสม_${reportMonth}.xlsx`);
+    XLSX.writeFile(wb, `รายงานผลงาน_อสม_${includeAllMonths ? 'สะสมทั้งหมด' : reportMonth}.xlsx`);
   };
 
   const handlePrint = () => {
@@ -142,14 +150,24 @@ export const VhvDirectory: React.FC<VhvDirectoryProps> = ({
         <div className="space-y-6">
           {/* Controls: Month selector & Export button */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <span className="text-xs font-semibold text-slate-700">ประจำเดือน / ปี (ค.ศ.):</span>
               <input
                 type="month"
                 value={reportMonth}
+                disabled={includeAllMonths}
                 onChange={(e) => setReportMonth(e.target.value)}
-                className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm font-medium outline-none"
+                className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm font-medium outline-none disabled:opacity-50"
               />
+              <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={includeAllMonths}
+                  onChange={(e) => setIncludeAllMonths(e.target.checked)}
+                  className="accent-emerald-600 rounded"
+                />
+                <span>แสดงสะสมทุกเดือน</span>
+              </label>
             </div>
 
             <div className="flex items-center gap-2">
@@ -178,10 +196,10 @@ export const VhvDirectory: React.FC<VhvDirectoryProps> = ({
                 แบบรายงานผลการปฏิบัติงานของ อสม. (แบบ อสม. 1 / Smart OSM)
               </h2>
               <p className="text-xs sm:text-sm text-slate-600 mt-1">
-                ระบบข้อมูลสุขภาพระดับปฐมภูมิ ตำบลสุขภาพดี อำเภอเมือง จังหวัดเชียงใหม่
+                ระบบข้อมูลสุขภาพระดับปฐมภูมิ {areaSubtitle}
               </p>
-              <div className="inline-flex items-center gap-4 text-xs text-slate-500 mt-2 font-medium">
-                <span>ประจำเดือน: {reportMonth}</span>
+              <div className="inline-flex flex-wrap justify-center items-center gap-4 text-xs text-slate-500 mt-2 font-medium">
+                <span>ประจำเดือน: {periodLabel}</span>
                 <span>•</span>
                 <span>
                   พื้นที่: {selectedVillageNo === 0 ? 'ทุกหมู่บ้าน' : `หมู่ที่ ${selectedVillageNo}`}
